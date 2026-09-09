@@ -1,0 +1,36 @@
+name: Build and release Mac app
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate tag matches app version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
+          test "$RELEASE_TAG" = "v$VERSION"
+      - name: Test
+        run: bash scripts/test.sh
+      - name: Package app only
+        run: bash scripts/package.sh
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'This version is already published; existing assets are preserved.'
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" dist/JiniDownloader-macOS-arm64.zip dist/SHA256SUMS.txt --verify-tag --title "Jini Downloader $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
