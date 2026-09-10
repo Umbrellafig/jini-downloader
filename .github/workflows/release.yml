@@ -22,6 +22,10 @@ jobs:
           test "$RELEASE_TAG" = "v$VERSION"
       - name: Test
         run: bash scripts/test.sh
+      - name: Verify update signing key is configured
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: test -n "$SPARKLE_PRIVATE_KEY"
       - name: Configure Apple signing and notarization
         env:
           CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
@@ -37,6 +41,10 @@ jobs:
           NOTARY_PROFILE: jini-release
           NOTARY_KEYCHAIN: ${{ runner.temp }}/jini-signing.keychain-db
         run: bash scripts/package.sh --release
+      - name: Sign update feed
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: bash scripts/appcast.sh
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,7 +54,7 @@ jobs:
             echo 'This version is already published; existing assets are preserved.'
             exit 0
           fi
-          gh release create "$RELEASE_TAG" dist/JiniDownloader-macOS-arm64.zip dist/SHA256SUMS.txt --verify-tag --title "Jini Downloader $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+          gh release create "$RELEASE_TAG" dist/JiniDownloader-macOS-arm64.zip dist/SHA256SUMS.txt dist/appcast.xml --verify-tag --title "Jini Downloader $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
       - name: Remove signing credentials
         if: always()
         run: |

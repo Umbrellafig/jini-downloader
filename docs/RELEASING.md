@@ -68,3 +68,16 @@ bash scripts/package.sh --release
 새 버전을 배포한 뒤 브라우저에서 ZIP을 받아 압축을 풀고 실행해 미확인 개발자 차단이 없는지 확인합니다. 서명이나 공증은 폴더 접근 등 별도의 개인정보 보호 권한까지 없애지는 않습니다.
 
 참고: [Apple의 공증 안내](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution), [Developer ID](https://developer.apple.com/developer-id/)
+
+## Sparkle 업데이트 배포
+
+앱의 `SUPublicEDKey`와 짝을 이루는 개인 키는 이 Mac 로그인 Keychain의 `io.github.umbrellafig.jini-downloader` 계정에 생성했습니다. 개인 키를 잃으면 기존 사용자의 업데이트를 이어가기 어려우므로 안전하게 보관합니다. 공개 키는 저장소에, 개인 키는 Keychain/CI Secret에만 둡니다.
+
+- 로컬: `bash scripts/package.sh --release` 성공 후 `bash scripts/appcast.sh`를 실행합니다.
+- CI: 별도의 `SPARKLE_PRIVATE_KEY` Secret이 필요합니다. Sparkle `generate_keys --account io.github.umbrellafig.jini-downloader -x <보안경로>`로 내보낸 내용을 등록하고, 내보낸 파일을 저장소에 넣지 않습니다. 키를 임의로 새로 생성하면 안 됩니다.
+- Release에 앱 ZIP, `SHA256SUMS.txt`, `appcast.xml`을 함께 올립니다. 피드는 버전별 고정 ZIP URL을 가리켜 새 릴리스가 나와도 검증 대상 파일이 바뀌지 않습니다.
+- 피드는 앱의 `releases/latest/download/appcast.xml`에서 가져옵니다. 프리릴리스는 최신 안정 버전에 영향을 주지 않습니다.
+- 앱 버전과 빌드 번호를 모두 올립니다. 개인 키가 앱의 공개 키와 다르면 피드 생성이 실패하며 배포를 중단해야 합니다.
+- Sparkle 2.9.6을 체크섬으로 고정하고 빌드 때 받아 포함합니다. Sparkle helper와 XPC는 내부부터 서명하고 마지막에 앱을 서명합니다.
+
+1.2.0 사용자는 첫 업데이트 지원 버전을 직접 설치해야 합니다. 이후 앱에서 확인·다운로드·설치·재시작합니다.

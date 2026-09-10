@@ -85,7 +85,8 @@ struct MediaCard: View {
     }
 }
 struct ContentView: View {
-    @StateObject var m = Model()
+    @ObservedObject var m: Model
+    @ObservedObject var updates: AppUpdater
     @State var showLog = false
     var body: some View {
         HStack(spacing: 0) {
@@ -100,7 +101,10 @@ struct ContentView: View {
                 Spacer()
                 Text("원본에 대한 안내").font(.caption.bold())
                 Text("유튜브 업로드 원본과\n서비스가 제공하는 영상은\n다릅니다. 앱은 제공되는\n스트림을 추가 압축 없이\n저장합니다.").font(.caption).foregroundStyle(.secondary).lineSpacing(4)
-                Text("VERSION 1.2").font(.caption2).foregroundStyle(.tertiary)
+                Text("VERSION \(AppUpdater.version)").font(.caption2).foregroundStyle(.tertiary)
+                Button("업데이트 확인…") { updates.check() }.disabled(m.busy || !updates.canCheck)
+                Toggle("자동으로 업데이트 확인", isOn: Binding(get: { updates.automaticallyChecks }, set: { updates.setAutomatic($0) })).font(.caption).toggleStyle(.checkbox)
+                Text(m.busy ? "작업 완료 후 업데이트할 수 있습니다" : updates.status).font(.caption2).foregroundStyle(.secondary)
             }.padding(24).frame(width: 192).frame(maxHeight: .infinity).background(Color.black.opacity(0.18))
             VStack(alignment: .leading, spacing: 12) {
                 HStack { Text("받을 파일을 먼저 확인하세요").font(.title.bold()); Spacer(); Text("PREVIEW & DOWNLOAD").font(.system(size: 10, weight: .semibold)).foregroundStyle(.mint) }
@@ -148,12 +152,29 @@ struct ContentView: View {
                 }
                 DisclosureGroup("상세 로그", isExpanded: $showLog) { ScrollView { Text(m.log).font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(8) }.frame(height: 100).background(Color.black.opacity(0.12)) }.font(.caption)
                 Text("용량은 서버 정보 기준이며 ‘약’은 추정값입니다. 병합 후 크기는 달라질 수 있습니다.").font(.caption2).foregroundStyle(.secondary)
-            }.padding(24).frame(minWidth: 690)
+            }.padding(24).frame(minWidth: 690).disabled(updates.sessionActive)
         }.frame(minWidth: 1000, minHeight: 770).preferredColorScheme(.dark)
+        .onChange(of: m.busy) { busy in if !busy { updates.workFinished() } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in m.stop() }
     }
 
 }
 @main struct JiniDownloaderApp: App {
-    var body: some Scene { WindowGroup { ContentView() }.windowStyle(.hiddenTitleBar).commands { CommandGroup(replacing: .newItem) {} } }
+    @StateObject private var model: Model
+    @StateObject private var updates: AppUpdater
+    init() {
+        let model = Model()
+        _model = StateObject(wrappedValue: model)
+        _updates = StateObject(wrappedValue: AppUpdater(isBusy: { model.busy }))
+    }
+    var body: some Scene {
+        WindowGroup { ContentView(m: model, updates: updates) }
+            .windowStyle(.hiddenTitleBar)
+            .commands {
+                CommandGroup(replacing: .newItem) {}
+                CommandGroup(after: .appInfo) {
+                    Button("업데이트 확인…") { updates.check() }.disabled(model.busy || !updates.canCheck)
+                }
+            }
+    }
 }
