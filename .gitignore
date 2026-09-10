@@ -7,3 +7,10 @@ dist/
 *.dmg
 *.part
 *.download.txt
+
+# Signing credentials must never be committed
+*.p12
+*.p8
+*.keychain-db
+.env
+.env.*

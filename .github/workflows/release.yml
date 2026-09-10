@@ -11,7 +11,7 @@ concurrency:
 jobs:
   release:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate tag matches app version
@@ -22,8 +22,21 @@ jobs:
           test "$RELEASE_TAG" = "v$VERSION"
       - name: Test
         run: bash scripts/test.sh
-      - name: Package app only
-        run: bash scripts/package.sh
+      - name: Configure Apple signing and notarization
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: bash scripts/ci-signing.sh
+      - name: Package signed and notarized app
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          NOTARY_PROFILE: jini-release
+          NOTARY_KEYCHAIN: ${{ runner.temp }}/jini-signing.keychain-db
+        run: bash scripts/package.sh --release
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,3 +47,8 @@ jobs:
             exit 0
           fi
           gh release create "$RELEASE_TAG" dist/JiniDownloader-macOS-arm64.zip dist/SHA256SUMS.txt --verify-tag --title "Jini Downloader $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/jini-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/jini-certificate.p12"
