@@ -9,7 +9,25 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  check-published:
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.release.outputs.exists }}
+    steps:
+      - id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
   release:
+    needs: check-published
+    if: needs.check-published.outputs.exists != 'true'
     runs-on: macos-latest
     timeout-minutes: 45
     steps:

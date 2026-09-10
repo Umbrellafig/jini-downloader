@@ -5,9 +5,8 @@ bash scripts/fetch-sparkle.sh
 SPARKLE="$PWD/.build/Sparkle-2.9.6"
 APP_PATH="$PWD/dist/JiniDownloader.app"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
-SDK_ARGS=()
-if [[ -n "${SDKROOT:-}" ]]; then SDK_ARGS=(-sdk "$SDKROOT"); fi
-swiftc -F "$SPARKLE" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks "${SDK_ARGS[@]}" -parse-as-library -O -target arm64-apple-macosx13.0 -module-cache-path "${TMPDIR:-/tmp}/jini-swift-cache" Sources/Core.swift Sources/Engine.swift Sources/EngineInstaller.swift Sources/Model.swift Sources/AppUpdater.swift Sources/main.swift -o "$APP_PATH/Contents/MacOS/JiniDownloader"
+BUILD_SDK="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
+swiftc -F "$SPARKLE" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -sdk "$BUILD_SDK" -parse-as-library -O -target arm64-apple-macosx13.0 -module-cache-path "${TMPDIR:-/tmp}/jini-swift-cache" Sources/Core.swift Sources/Engine.swift Sources/EngineInstaller.swift Sources/Model.swift Sources/AppUpdater.swift Sources/main.swift -o "$APP_PATH/Contents/MacOS/JiniDownloader"
 mkdir -p "$APP_PATH/Contents/Frameworks"
 ditto "$SPARKLE/Sparkle.framework" "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 cp "$SPARKLE/LICENSE" "$APP_PATH/Contents/Resources/Sparkle-LICENSE.txt"
