@@ -29,4 +29,6 @@
 - 별도 테스트 bundle ID와 localhost 피드로 1.2.9 → 1.3.0 감지, 다운로드, 앱 교체, 재시작 및 버전 변경 확인.
 - 실제 ZIP의 Ed25519 서명 검증 성공, 변조한 ZIP은 검증 실패 확인.
 - 기존 메타데이터/진행률/프로세스 취소 테스트 통과.
-- Apple Developer ID 인증서와 공증 설정은 아직 준비되지 않아 정식 서명·공증 및 공개 피드를 통한 업데이트는 미검증. 로컬 업데이트 검증은 임시 서명 앱으로 수행함.
+- Developer ID 서명, hardened runtime 및 timestamp 검증 성공. Apple 공증 Accepted, stapler 검증 성공, Gatekeeper 평가 `accepted / Notarized Developer ID` 확인.
+- 공증 제출 ID: `6b209123-6ecd-4df1-9495-198a78fd9aaf`.
+- 로컬 업데이트 검증은 임시 서명 앱으로 수행함. 공개 피드를 통한 실제 앱 교체는 별도 검증이 필요함.
