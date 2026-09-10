@@ -32,3 +32,11 @@
 - Developer ID 서명, hardened runtime 및 timestamp 검증 성공. Apple 공증 Accepted, stapler 검증 성공, Gatekeeper 평가 `accepted / Notarized Developer ID` 확인.
 - 공증 제출 ID: `6b209123-6ecd-4df1-9495-198a78fd9aaf`.
 - 로컬 업데이트 검증은 임시 서명 앱으로 수행함. 공개 피드를 통한 실제 앱 교체는 별도 검증이 필요함.
+
+## 웹페이지 이미지 탐색 — 개발 중
+
+- 알고몬 `/n/deal`: gallery-dl의 `Unsupported URL` 및 직접 요청의 HTTP 403 `CHALLENGE_REQUIRED` 응답 재현.
+- WebKit 페이지를 사용자가 열고 스크롤한 뒤 로드된 이미지 URL을 가져오는 기능 추가. 브라우저 확인 절차를 자동으로 풀거나 기존 브라우저 쿠키를 가져오지 않음.
+- 이미지 URL 유효성, 중복 제거, 해상도·용량 미상 처리, 기본 선택 해제, Referer 전달 테스트 통과. 기존 코어·프로세스 테스트 및 앱 빌드 통과.
+- `Tests/WebImageTests.swift`의 `--browser`는 일반 Mac 실행 환경에서 DOM 추출을 검증하는 선택적 통합 테스트. 자동 실행 환경의 WebKit 제한으로 아직 통과 여부 미확인.
+- 알고몬 실제 화면의 이미지 추출 및 저장은 수동 검증 대기. 공개 릴리스는 1.3.0 유지.

@@ -4,6 +4,7 @@ import ImageIO
 
 struct Thumbnail: View {
     let url: String?
+    var headers: [String: String] = [:]
     @State private var preview: NSImage?
     var body: some View {
         ZStack {
@@ -16,6 +17,7 @@ struct Thumbnail: View {
             guard let url, let u = webURL(url) else { return }
             do {
                 var r = URLRequest(url: u); r.timeoutInterval = 15
+                headers.forEach { r.setValue($0.value, forHTTPHeaderField: $0.key) }
                 let (stream, response) = try await URLSession.shared.bytes(for: r)
                 guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode), (response.mimeType ?? "").hasPrefix("image/"), response.expectedContentLength <= 4*1024*1024 else { return }
                 var data = Data()
@@ -58,7 +60,7 @@ struct MediaCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 14) {
                 Toggle("받기", isOn: $item.selected).labelsHidden().toggleStyle(.checkbox).disabled(busy).accessibilityLabel("\(item.title) 선택")
-                Thumbnail(url: item.thumbnail)
+                Thumbnail(url: item.thumbnail, headers: item.headers)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(item.title).font(.headline).lineLimit(2).textSelection(.enabled)
                     Text(item.subtitle + (item.duration != nil ? " · " + durationText(item.duration) : "")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -88,6 +90,8 @@ struct ContentView: View {
     @ObservedObject var m: Model
     @ObservedObject var updates: AppUpdater
     @State var showLog = false
+    @State var showWebImages = false
+    var webImageURL: URL? { m.input.components(separatedBy: .newlines).compactMap { webURL($0.trimmingCharacters(in: .whitespacesAndNewlines)) }.first }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 20) {
@@ -111,9 +115,10 @@ struct ContentView: View {
                 ZStack(alignment: .topLeading) {
                     if m.input.isEmpty { Text("https://…  링크를 한 줄에 하나씩 입력하세요").foregroundStyle(.tertiary).padding(10) }
                     TextEditor(text: $m.input).font(.system(.body, design: .monospaced)).scrollContentBackground(.hidden).padding(5).accessibilityLabel("미디어 URL")
-                }.frame(height: 60).background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.1))).disabled(m.busy)
+                }.sheet(isPresented: $showWebImages) { if let url = webImageURL { WebImageSheet(url: url) { m.acceptWebImages($0) } } }.frame(height: 60).background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.1))).disabled(m.busy)
                 HStack {
                     Picker("종류", selection: $m.mode) { ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.frame(width: 230).disabled(m.busy)
+                    Button("웹페이지 이미지 찾기…") { showWebImages = true }.disabled(m.busy || webImageURL == nil)
                     Button("붙여넣기") { if let s = NSPasteboard.general.string(forType: .string) { m.input = s } }.disabled(m.busy)
                     Spacer()
                     Button(m.items.isEmpty ? "미리보기 분석" : "다시 분석") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)

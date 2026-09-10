@@ -56,6 +56,27 @@ import AppKit
     func choose() { let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.directoryURL = folder; if p.runModal() == .OK, let u = p.url { folder = u; UserDefaults.standard.set(u.path, forKey: "saveFolder") } }
     func stop() { cancelled = true; task?.cancel(); runner?.cancel(); transfer?.cancel(); status = "취소 중…" }
     func invalidateSelection(_ id: UUID) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = "준비됨"; items[i].error = ""; items[i].progress = [:]; items[i].output = nil } }
+    func acceptWebImages(_ found: [MediaItem]) {
+        guard !busy else { return }
+        items = found; previewErrors = []; snapshot = signature
+        status = "웹페이지 이미지 \(found.count)개 확인 · 받을 사진에 체크해 주세요"
+        log = "웹페이지에 로드된 이미지 URL을 가져왔습니다. 브라우저 쿠키는 다운로드에 복사하지 않습니다."
+        busy = true; analyzing = true; cancelled = false
+        task = Task {
+            defer { busy = false; analyzing = false; task = nil }
+            let deadline = Date().addingTimeInterval(15)
+            for i in items.indices {
+                if Task.isCancelled || Date() > deadline { break }
+                status = "이미지 \(i + 1)/\(items.count) · 이름과 용량 확인 중"
+                if let url = webURL(items[i].url), let info = try? await inspectDirect(url, headers: items[i].headers, timeout: 3) {
+                    items[i].choices[0].size = info.selectedFormat.size
+                    if info.selectedFormat.ext != "?" { items[i].choices[0].ext = info.selectedFormat.ext }
+                    items[i].title = info.title
+                }
+            }
+            status = Task.isCancelled ? "용량 확인 취소됨 · 받을 사진을 선택할 수 있습니다" : "웹페이지 이미지 \(items.count)개 확인 · 받을 사진에 체크해 주세요"
+        }
+    }
     func analyze() {
         guard !busy, enginesReady else { status = "먼저 필수 도구를 설치해 주세요"; return }
         let values = input.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
@@ -86,7 +107,7 @@ import AppKit
                 } catch { if !Task.isCancelled { let message = "\(value)\n\(error.localizedDescription)"; previewErrors.append(message); note(message) } }
             }
             snapshot = sig
-            status = cancelled ? "분석 취소됨 · 완료된 미리보기만 표시합니다" : "\(items.count)개 파일 확인 · 받을 항목과 포맷을 선택하세요"
+            status = cancelled ? "분석 취소됨 · 완료된 미리보기만 표시합니다" : (items.isEmpty && !previewErrors.isEmpty ? "분석 실패 · 일반 페이지의 사진은 ‘웹페이지 이미지 찾기…’를 사용해 주세요" : "\(items.count)개 파일 확인 · 받을 항목과 포맷을 선택하세요")
         }
     }
     private func execute(_ name: String, _ args: [String], id: UUID? = nil, metadata: Bool = false) async throws -> EngineResult {
@@ -129,8 +150,8 @@ import AppKit
         }
         return found
     }
-    private func inspectDirect(_ u: URL, headers: [String: String] = [:]) async throws -> MediaItem {
-        var request = URLRequest(url: u); request.httpMethod = "HEAD"; request.timeoutInterval = 15
+    private func inspectDirect(_ u: URL, headers: [String: String] = [:], timeout: TimeInterval = 15) async throws -> MediaItem {
+        var request = URLRequest(url: u); request.httpMethod = "HEAD"; request.timeoutInterval = timeout
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         var size: Double?; var title = u.lastPathComponent; var ext = u.pathExtension; var mime = ""; var warning = ""
         do {

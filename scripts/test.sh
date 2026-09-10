@@ -7,3 +7,7 @@ swiftc -parse-as-library -module-cache-path "$TASK_TEST_DIR/cache" Sources/Core.
 "$TASK_TEST_DIR/core-tests"
 swiftc -parse-as-library -module-cache-path "$TASK_TEST_DIR/cache" Sources/Core.swift Sources/Engine.swift Tests/EngineTests.swift -o "$TASK_TEST_DIR/engine-tests"
 "$TASK_TEST_DIR/engine-tests"
+
+# Metadata checks do not launch WebKit; --browser is an optional desktop integration test.
+swiftc -parse-as-library -module-cache-path "$TASK_TEST_DIR/cache" Sources/Core.swift Sources/WebImages.swift Tests/WebImageTests.swift -o "$TASK_TEST_DIR/web-image-tests"
+"$TASK_TEST_DIR/web-image-tests"
