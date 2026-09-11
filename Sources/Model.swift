@@ -159,7 +159,8 @@ import AppKit
             if let http = r as? HTTPURLResponse, (200...299).contains(http.statusCode) {
                 mime = r.mimeType ?? ""; title = r.suggestedFilename ?? title
                 if r.expectedContentLength > 0 { size = Double(r.expectedContentLength) }
-                if ext.isEmpty { ext = (title as NSString).pathExtension }
+                let returnedExtension = (title as NSString).pathExtension.lowercased()
+                if ["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "tiff", "bmp", "svg"].contains(returnedExtension) || ext.isEmpty { ext = returnedExtension }
                 if mime.contains("text/html") { throw failure("파일 대신 웹페이지가 응답했습니다. 자동 또는 동영상 모드로 분석해 주세요.") }
             } else { warning = "서버가 사전 용량 조회를 지원하지 않습니다. 다운로드 시 파일 종류를 확인합니다." }
         } catch {
