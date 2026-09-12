@@ -8,6 +8,8 @@
 	<string>JiniDownloader</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.umbrellafig.jini-downloader</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleName</key>
 	<string>Jini Downloader</string>
 	<key>CFBundlePackageType</key>

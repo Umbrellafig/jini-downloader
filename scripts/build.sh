@@ -10,6 +10,7 @@ swiftc -F "$SPARKLE" -framework Sparkle -Xlinker -rpath -Xlinker @executable_pat
 mkdir -p "$APP_PATH/Contents/Frameworks"
 ditto "$SPARKLE/Sparkle.framework" "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 cp "$SPARKLE/LICENSE" "$APP_PATH/Contents/Resources/Sparkle-LICENSE.txt"
+cp Resources/AppIcon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
 cp Resources/Info.plist "$APP_PATH/Contents/Info.plist"
 cp Resources/engines.json "$APP_PATH/Contents/Resources/engines.json"
 if [[ -f LICENSE ]]; then cp LICENSE "$APP_PATH/Contents/Resources/LICENSE.txt"; fi
