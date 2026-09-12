@@ -105,4 +105,3 @@ struct WebImageView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView { browser.webView }
     func updateNSView(_ view: WKWebView, context: Context) {}
 }
-
