@@ -56,58 +56,67 @@ import AppKit
     func choose() { let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.directoryURL = folder; if p.runModal() == .OK, let u = p.url { folder = u; UserDefaults.standard.set(u.path, forKey: "saveFolder") } }
     func stop() { cancelled = true; task?.cancel(); runner?.cancel(); transfer?.cancel(); status = "취소 중…" }
     func invalidateSelection(_ id: UUID) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = "준비됨"; items[i].error = ""; items[i].progress = [:]; items[i].output = nil } }
-    func acceptWebImages(_ found: [MediaItem]) {
-        guard !busy else { return }
-        items = found; previewErrors = []; snapshot = signature
-        status = "웹페이지 이미지 \(found.count)개 확인 · 받을 사진에 체크해 주세요"
-        log = "웹페이지에 로드된 이미지 URL을 가져왔습니다. 브라우저 쿠키는 다운로드에 복사하지 않습니다."
-        busy = true; analyzing = true; cancelled = false
-        task = Task {
-            defer { busy = false; analyzing = false; task = nil }
-            let deadline = Date().addingTimeInterval(15)
-            for i in items.indices {
-                if Task.isCancelled || Date() > deadline { break }
-                status = "이미지 \(i + 1)/\(items.count) · 이름과 용량 확인 중"
-                if let url = webURL(items[i].url), let info = try? await inspectDirect(url, headers: items[i].headers, timeout: 3) {
-                    items[i].choices[0].size = info.selectedFormat.size
-                    if info.selectedFormat.ext != "?" { items[i].choices[0].ext = info.selectedFormat.ext }
-                    items[i].title = info.title
-                }
-            }
-            status = Task.isCancelled ? "용량 확인 취소됨 · 받을 사진을 선택할 수 있습니다" : "웹페이지 이미지 \(items.count)개 확인 · 받을 사진에 체크해 주세요"
+    func appendResults(_ found: [MediaItem]) {
+        var seen = Set(items.map(\.url))
+        for var item in found where seen.insert(item.url).inserted {
+            item.selected = false
+            items.append(item)
         }
+    }
+    func downloadAll() {
+        guard !busy, !stale else { return }
+        for i in items.indices { items[i].selected = items[i].state != "완료" }
+        start()
     }
     func analyze() {
         guard !busy, enginesReady else { status = "먼저 필수 도구를 설치해 주세요"; return }
         let values = input.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard !values.isEmpty, values.allSatisfy({ webURL($0) != nil }) else { status = "http 또는 https 링크를 한 줄에 하나씩 입력해 주세요"; return }
         var seen = Set<String>(); let urls = values.filter { seen.insert($0).inserted }
-        let selectedMode = mode; let sig = signature
-        busy = true; analyzing = true; cancelled = false; items = []; previewErrors = []; log = "미디어 본문을 저장하지 않고 메타데이터를 분석합니다. 썸네일 이미지는 미리보기를 위해 가져옵니다."
+        let sig = signature
+        busy = true; analyzing = true; cancelled = false; items = []; previewErrors = []; snapshot = sig
+        log = "페이지의 이미지와 동영상을 함께 찾습니다. 미리보기 이미지는 불러오지만 선택 전에는 파일을 저장하지 않습니다."
         task = Task {
             defer { busy = false; analyzing = false; task = nil; runner = nil }
             for (n, value) in urls.enumerated() {
                 if Task.isCancelled { break }
-                status = "링크 \(n+1)/\(urls.count) 분석 중 · 사이트 응답을 기다립니다"
+                let before = items.count
+                let url = webURL(value)!
                 do {
-                    let u = webURL(value)!
-                    var results: [MediaItem]
-                    let isImage = ["jpg","jpeg","png","webp","gif","avif","heic","tiff","bmp","svg"].contains(u.pathExtension.lowercased())
-                    if selectedMode == .direct || (selectedMode == .auto && isImage) { results = [try await inspectDirect(u)] }
-                    else if selectedMode == .gallery { results = try await inspectGallery(value) }
-                    else {
-                        do { results = [try await inspectVideo(value)] }
-                        catch {
-                            try Task.checkCancellation()
-                            if selectedMode == .auto { note("동영상 분석 실패: \(error.localizedDescription)"); results = try await inspectGallery(value) }
-                            else { throw error }
-                        }
+                    status = "링크 \(n+1)/\(urls.count) · 이미지와 동영상 찾는 중"
+                    let directExtensions = ["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "tiff", "bmp", "svg", "mp4", "webm", "mov", "m4v", "mp3", "wav"]
+                    if directExtensions.contains(url.pathExtension.lowercased()) {
+                        appendResults([try await inspectDirect(url)])
+                    } else {
+                        let browser = WebImages()
+                        appendResults(try await browser.inspect(url))
+                        try Task.checkCancellation()
+                        status = "\(items.count)개 찾음 · 동영상 품질과 사진 게시물 확인 중"
+                        do { appendResults([try await inspectVideo(value)]) }
+                        catch { try Task.checkCancellation(); note("동영상: \(error.localizedDescription)") }
+                        do { appendResults(try await inspectGallery(value)) }
+                        catch { try Task.checkCancellation(); note("사진 게시물: \(error.localizedDescription)") }
                     }
-                    try Task.checkCancellation(); items.append(contentsOf: results)
-                } catch { if !Task.isCancelled { let message = "\(value)\n\(error.localizedDescription)"; previewErrors.append(message); note(message) } }
+                    try Task.checkCancellation()
+                    if items.count == before {
+                        previewErrors.append("\(value)\n확인 가능한 파일을 찾지 못했습니다. 로그인·사이트 확인이 필요한 페이지이거나 지원하지 않는 콘텐츠일 수 있습니다.")
+                    }
+                } catch {
+                    if !Task.isCancelled { previewErrors.append("\(value)\n\(error.localizedDescription)") }
+                }
+            }
+            let deadline = Date().addingTimeInterval(12)
+            for i in items.indices where items[i].engine == "direct" {
+                if Task.isCancelled || Date() > deadline { break }
+                status = "\(items.count)개 찾음 · 파일 이름과 용량 확인 중"
+                if let url = webURL(items[i].url), let info = try? await inspectDirect(url, headers: items[i].headers, timeout: 2) {
+                    items[i].choices[0].size = info.selectedFormat.size
+                    if info.selectedFormat.ext != "?" { items[i].choices[0].ext = info.selectedFormat.ext }
+                    items[i].title = info.title
+                }
             }
             snapshot = sig
-            status = cancelled ? "분석 취소됨 · 완료된 미리보기만 표시합니다" : (items.isEmpty && !previewErrors.isEmpty ? "분석 실패 · 일반 페이지의 사진은 ‘웹페이지 이미지 찾기…’를 사용해 주세요" : "\(items.count)개 파일 확인 · 받을 항목과 포맷을 선택하세요")
+            status = cancelled ? "분석 중단 · 찾은 파일은 선택해서 받을 수 있습니다" : "\(items.count)개 파일 · 원하는 항목을 선택하거나 전체 다운로드하세요"
         }
     }
     private func execute(_ name: String, _ args: [String], id: UUID? = nil, metadata: Bool = false) async throws -> EngineResult {
@@ -141,12 +150,7 @@ import AppKit
         let r = try await execute("gallery-dl", ["--config-ignore", "--no-input", "--http-timeout", "25", "--retries", "2", "--range", "1-200", "--resolve-json", "--", value], metadata: true)
         var found = try Metadata.gallery(r.output, source: value)
         for i in found.indices {
-            try Task.checkCancellation()
-            status = "갤러리 파일 \(i+1)/\(found.count) · 용량 확인 중"
-            if let info = try? await inspectDirect(webURL(found[i].url)!, headers: found[i].headers) {
-                found[i].choices[0].size = info.choices[0].size
-            }
-            found[i].warning = "갤러리는 최대 200개까지 표시합니다. 선택한 파일 URL을 그대로 저장합니다."
+            found[i].warning = "사진·갤러리 파일은 최대 200개까지 표시합니다. 선택한 URL을 그대로 저장합니다."
         }
         return found
     }

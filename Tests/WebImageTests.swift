@@ -25,6 +25,7 @@ import WebKit
                 <div style="width:100px;height:100px;background-image:url('../product.jpg')"></div>
                 <div style="width:10px;height:10px;background-image:url('../tracking.gif')"></div>
                 <img src="data:image/svg+xml,invalid">
+                <video src="https://example.com/movie.mp4" preload="none"></video>
                 </body></html>
                 """, baseURL: URL(string: "https://example.com/deals/"))
             do {
@@ -34,8 +35,9 @@ import WebKit
                 }
                 let result = try await browser.webView.evaluateJavaScript(WebImages.script) as! [String: Any]
                 let images = result["images"] as! [[String: Any]]
-                precondition(images.count == 1)
-                precondition(images[0]["url"] as? String == "https://example.com/product.jpg")
+                precondition(images.count == 2)
+                precondition(images.contains { $0["url"] as? String == "https://example.com/product.jpg" })
+                precondition(images.contains { $0["url"] as? String == "https://example.com/movie.mp4" && $0["kind"] as? String == "video" })
                 print("Web images: rendered DOM, relative URL, background, size filter, deduplication, URL safety, selection and headers passed")
                 exit(0)
             } catch { print(error); exit(1) }

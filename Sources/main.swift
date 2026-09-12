@@ -90,8 +90,6 @@ struct ContentView: View {
     @ObservedObject var m: Model
     @ObservedObject var updates: AppUpdater
     @State var showLog = false
-    @State var showWebImages = false
-    var webImageURL: URL? { m.input.components(separatedBy: .newlines).compactMap { webURL($0.trimmingCharacters(in: .whitespacesAndNewlines)) }.first }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 20) {
@@ -115,13 +113,11 @@ struct ContentView: View {
                 ZStack(alignment: .topLeading) {
                     if m.input.isEmpty { Text("https://…  링크를 한 줄에 하나씩 입력하세요").foregroundStyle(.tertiary).padding(10) }
                     TextEditor(text: $m.input).font(.system(.body, design: .monospaced)).scrollContentBackground(.hidden).padding(5).accessibilityLabel("미디어 URL")
-                }.sheet(isPresented: $showWebImages) { if let url = webImageURL { WebImageSheet(url: url) { m.acceptWebImages($0) } } }.frame(height: 60).background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.1))).disabled(m.busy)
+                }.frame(height: 60).background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.1))).disabled(m.busy)
                 HStack {
-                    Picker("종류", selection: $m.mode) { ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.frame(width: 230).disabled(m.busy)
-                    Button("웹페이지 이미지 찾기…") { showWebImages = true }.disabled(m.busy || webImageURL == nil)
                     Button("붙여넣기") { if let s = NSPasteboard.general.string(forType: .string) { m.input = s } }.disabled(m.busy)
                     Spacer()
-                    Button(m.items.isEmpty ? "미리보기 분석" : "다시 분석") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
+                    Button("분석하기") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
                 }
                 HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); Button("변경") { m.choose() }.disabled(m.busy); Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
                 Divider()
@@ -139,13 +135,13 @@ struct ContentView: View {
                     }.padding(14).background(Color.mint.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 HStack { if m.busy { ProgressView().controlSize(.small) }; Text(m.status).font(.callout).lineLimit(1); Spacer(); if m.busy { Button("취소", role: .cancel) { m.stop() } } }
-                if m.stale { Text("링크 또는 종류가 변경되었습니다. 미리보기를 다시 분석해 주세요.").font(.caption).foregroundStyle(.orange) }
+                if m.stale { Text("링크가 변경되었습니다. 분석하기를 다시 눌러 주세요.").font(.caption).foregroundStyle(.orange) }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if m.items.isEmpty && !m.busy {
-                            VStack(spacing: 12) { Image(systemName: "rectangle.stack.badge.play").font(.system(size: 44)).foregroundStyle(.mint.opacity(0.6)); Text("다운로드 전에 이름·화질·용량을 확인하세요").font(.headline); Text("미리보기 분석 → 항목과 포맷 선택 → 선택한 파일 다운로드").font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 55)
+                            VStack(spacing: 12) { Image(systemName: "rectangle.stack.badge.play").font(.system(size: 44)).foregroundStyle(.mint.opacity(0.6)); Text("다운로드 전에 이름·화질·용량을 확인하세요").font(.headline); Text("분석하기 → 이미지·동영상 확인 → 선택 또는 전체 다운로드").font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 55)
                         }
-                        ForEach($m.items) { $item in MediaCard(item: $item, busy: m.busy) }
+                        ForEach($m.items) { $item in MediaCard(item: $item, busy: m.busy && !m.analyzing) }
                         ForEach(Array(m.previewErrors.enumerated()), id: \.offset) { _, e in Text(e).font(.caption).foregroundStyle(.orange).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(Color.orange.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 8)) }
                     }.padding(.vertical, 2)
                 }.frame(minHeight: 210)
@@ -153,7 +149,8 @@ struct ContentView: View {
                     if !m.items.isEmpty { Button("전체 선택") { for i in m.items.indices { m.items[i].selected = true } }.disabled(m.busy); Button("해제") { for i in m.items.indices { m.items[i].selected = false } }.disabled(m.busy) }
                     Text("\(m.selectedCount)개 · \(m.selectedSize)").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("선택한 파일 다운로드") { m.start() }.buttonStyle(.borderedProminent).tint(.mint).foregroundStyle(.black).disabled(!m.canDownload)
+                    Button("전체 다운로드") { m.downloadAll() }.disabled(m.busy || m.stale || !m.enginesReady || !m.items.contains { $0.state != "완료" })
+                    Button("선택 다운로드") { m.start() }.buttonStyle(.borderedProminent).tint(.mint).foregroundStyle(.black).disabled(!m.canDownload)
                 }
                 DisclosureGroup("상세 로그", isExpanded: $showLog) { ScrollView { Text(m.log).font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(8) }.frame(height: 100).background(Color.black.opacity(0.12)) }.font(.caption)
                 Text("용량은 서버 정보 기준이며 ‘약’은 추정값입니다. 병합 후 크기는 달라질 수 있습니다.").font(.caption2).foregroundStyle(.secondary)
