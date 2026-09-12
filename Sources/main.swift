@@ -156,6 +156,7 @@ struct ContentView: View {
                 Text("용량은 서버 정보 기준이며 ‘약’은 추정값입니다. 병합 후 크기는 달라질 수 있습니다.").font(.caption2).foregroundStyle(.secondary)
             }.padding(24).frame(minWidth: 690).disabled(updates.sessionActive)
         }.frame(minWidth: 1000, minHeight: 770).preferredColorScheme(.dark)
+        .onAppear { Installation.checkOnce() }
         .onChange(of: m.busy) { busy in if !busy { updates.workFinished() } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in m.stop() }
     }

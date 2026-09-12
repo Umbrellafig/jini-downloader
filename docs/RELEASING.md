@@ -81,3 +81,7 @@ bash scripts/package.sh --release
 - Sparkle 2.9.6을 체크섬으로 고정하고 빌드 때 받아 포함합니다. Sparkle helper와 XPC는 내부부터 서명하고 마지막에 앱을 서명합니다.
 
 1.2.0 사용자는 첫 업데이트 지원 버전을 직접 설치해야 합니다. 이후 앱에서 확인·다운로드·설치·재시작합니다.
+
+## DMG 설치 파일
+
+`package.sh --release`는 앱과 DMG를 각각 서명·공증합니다. 신규 설치 링크는 `JiniDownloader-macOS-arm64.dmg`, Sparkle 업데이트는 기존 ZIP을 사용합니다. SHA256SUMS에는 두 파일을 기록합니다. DMG 생성에는 Python 3와 고정 버전 ds-store/mac-alias 패키지가 필요하며 임시 폴더에 설치하고 정리합니다.

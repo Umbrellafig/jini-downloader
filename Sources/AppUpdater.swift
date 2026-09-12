@@ -19,10 +19,12 @@ import Sparkle
         controller.updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheck)
         controller.updater.publisher(for: \.sessionInProgress).assign(to: &$sessionActive)
         controller.updater.publisher(for: \.automaticallyChecksForUpdates).assign(to: &$automaticallyChecks)
-        controller.startUpdater()
+        if Installation.installed { controller.startUpdater() }
+        else { canCheck = true; status = "응용 프로그램 폴더에 설치하면 업데이트할 수 있습니다" }
     }
     func check() {
         guard !isBusy(), canCheck else { return }
+        guard Installation.installed else { Installation.show(); return }
         status = "최신 버전 확인 중…"
         controller.checkForUpdates(nil)
     }

@@ -7,7 +7,7 @@
 링크를 붙여넣으면 제목·사진·화질·예상 용량을 미리 확인할 수 있어요.<br>
 원하는 파일을 고르면, 다운로드가 얼마나 진행됐는지도 한눈에 보여요.
 
-### [⬇️ Mac용 지니 다운로더 다운로드](https://github.com/Umbrellafig/jini-downloader/releases/latest/download/JiniDownloader-macOS-arm64.zip)
+### [⬇️ Mac용 지니 다운로더 다운로드](https://github.com/Umbrellafig/jini-downloader/releases/latest/download/JiniDownloader-macOS-arm64.dmg)
 
 무료 · Apple Silicon Mac(M1 이상) · macOS 26 이상
 
@@ -31,30 +31,25 @@ Intel 칩을 사용하는 Mac과 Windows는 현재 지원하지 않아요.
 
 ## 처음 설치하나요?
 
-### 1. 앱을 내려받고 압축을 풀어요
+### 1. 설치 파일을 열어요
 
-위의 **Mac용 지니 다운로더 다운로드**를 눌러 주세요. GitHub에 가입하거나 로그인할 필요는 없어요.
+위 **Mac용 지니 다운로더 다운로드** 버튼을 누르세요. GitHub 로그인은 필요 없어요.
+다운로드한 **JiniDownloader-macOS-arm64.dmg**를 더블클릭하면 설치 디스크가 열려요.
 
-Finder의 **다운로드** 폴더에서 `JiniDownloader-macOS-arm64.zip`을 더블클릭하면 `JiniDownloader.app`이 나와요. 이미 앱이 보인다면 압축을 다시 풀지 않아도 돼요.
+### 2. 앱을 Applications 폴더로 드래그해요
 
-> 릴리스 페이지에서 직접 받는다면 **JiniDownloader-macOS-arm64.zip**을 선택하세요. `Source code`는 개발용 파일이라 앱 설치에 필요하지 않아요.
-
-### 2. 앱을 ‘응용 프로그램’ 폴더로 옮겨요
-
-**`JiniDownloader.app`을 Finder 왼쪽의 ‘응용 프로그램’으로 드래그해 주세요.** 영어로는 **Applications**예요.
-
-왼쪽에 폴더가 보이지 않으면 Finder에서 **⇧⌘A**(Shift + Command + A)를 누르면 열 수 있어요.
+설치 창의 **JiniDownloader.app** 아이콘을 **Applications** 폴더 아이콘으로 옮기세요. Applications는 Mac의 **응용 프로그램** 폴더예요.
 
 > [!IMPORTANT]
-> **앱을 다운로드 폴더에서 바로 실행하지 마세요.**
-> 앱 안에서 업데이트하려면 응용 프로그램 폴더로 옮긴 뒤, **그 폴더에 있는 앱**을 실행해야 해요.
-> 이미 실행했다면 **⌘Q**로 종료하고 옮겨 주세요.
+> 설치 디스크 안의 앱을 바로 실행하지 말고, 먼저 Applications로 옮겨 주세요. 잘못된 위치에서 실행하면 앱이 한글로 설치 방법을 안내해요.
 
-### 3. 응용 프로그램 폴더에서 앱을 열어요
+기존 앱이 있다면 종료한 뒤 Finder의 교체 안내를 확인해 주세요. 다운로드한 사진·영상은 앱 교체로 지워지지 않아요.
 
-옮긴 `JiniDownloader.app`을 더블클릭하세요. 처음에 인터넷에서 내려받은 앱을 열겠냐는 확인 창이 나오면 **열기**를 눌러 주세요.
+### 3. 응용 프로그램 폴더에서 실행해요
 
-**1.3.0부터 Apple 개발자 서명과 공증을 완료한 앱을 배포하고 있어요.** 이전 버전에서 보이던 ‘개발자를 확인할 수 없음’ 경고가 나온다면 최신 앱으로 교체해 주세요.
+Finder에서 **⇧⌘A**(Shift + Command + A)를 눌러 응용 프로그램 폴더를 연 뒤 지니 다운로더를 실행하세요. 처음에 인터넷에서 받은 앱을 열겠냐고 물으면 **열기**를 선택하세요.
+
+설치 후 Finder에서 ‘지니 다운로더 설치’ 디스크를 추출해도 돼요. 앱과 DMG는 Apple 개발자 서명과 공증을 적용해 배포해요.
 
 ### 4. 처음 한 번, 필수 도구를 설치해요
 

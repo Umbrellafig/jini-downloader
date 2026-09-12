@@ -72,7 +72,7 @@ jobs:
             echo 'This version is already published; existing assets are preserved.'
             exit 0
           fi
-          gh release create "$RELEASE_TAG" dist/JiniDownloader-macOS-arm64.zip dist/SHA256SUMS.txt dist/appcast.xml --verify-tag --title "Jini Downloader $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+          gh release create "$RELEASE_TAG" dist/JiniDownloader-macOS-arm64.zip dist/JiniDownloader-macOS-arm64.dmg dist/SHA256SUMS.txt dist/appcast.xml --verify-tag --title "Jini Downloader $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
       - name: Remove signing credentials
         if: always()
         run: |

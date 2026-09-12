@@ -16,5 +16,6 @@ if [[ "$MODE" == --release ]]; then
   bash scripts/notarize.sh
 fi
 ditto -c -k --sequesterRsrc --keepParent dist/JiniDownloader.app dist/JiniDownloader-macOS-arm64.zip
-(cd dist && shasum -a 256 JiniDownloader-macOS-arm64.zip > SHA256SUMS.txt)
+bash scripts/dmg.sh "$MODE"
+(cd dist && shasum -a 256 JiniDownloader-macOS-arm64.zip JiniDownloader-macOS-arm64.dmg > SHA256SUMS.txt)
 unzip -tq dist/JiniDownloader-macOS-arm64.zip
