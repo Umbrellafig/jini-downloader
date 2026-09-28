@@ -31,14 +31,17 @@ import WebKit
         open(url)
         defer { webView.stopLoading() }
         var latest: [MediaItem] = []
+        var signature: [String]?
         var stable = 0
         for _ in 0..<24 {
             try await Task.sleep(nanoseconds: 500_000_000)
             try Task.checkCancellation()
             guard !webView.isLoading else { continue }
+            // An opened post may hold only an embedded player, so an empty image list still counts as a result.
             if let result = try? await scan() {
-                stable = result.map(\.url) == latest.map(\.url) ? stable + 1 : 0
-                latest = result
+                let current = result.map(\.url) + embeds
+                stable = current == signature ? stable + 1 : 0
+                signature = current; latest = result
                 if stable >= 3 { return latest }
             }
         }
@@ -47,40 +50,40 @@ import WebKit
     static let script = #"""
     (() => {
       const out = [], seen = new Set();
-      const add = (raw, title, width, height, kind = 'image', post = false) => {
+      // A link to one post (e.g. Padlet /wish/…) opens it in a dialog over the whole board. When that dialog
+      // holds real media, collect only from it; a cookie banner with a small logo does not qualify.
+      const visible = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+      const post = Array.from(document.querySelectorAll('[role=dialog], [aria-modal=true]')).find(d => visible(d) && (
+        d.querySelector('video, iframe[src]') || Array.from(d.querySelectorAll('img')).some(i => i.complete && i.naturalWidth * i.naturalHeight >= 20000)));
+      const scope = post || document;
+      const add = (raw, title, width, height, kind = 'image') => {
         if (!raw || out.length >= 200) return;
         try {
           const u = new URL(raw, document.baseURI);
           if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || seen.has(u.href)) return;
           // Skip icons and pixels, but keep long strips such as webtoons shown 41×745.
           if (width > 0 && height > 0 && (Math.max(width, height) < 48 || width * height < 48 * 48)) return;
-          seen.add(u.href); out.push({url:u.href, title:title || '', width:width || 0, height:height || 0, kind, post});
+          seen.add(u.href); out.push({url:u.href, title:title || '', width:width || 0, height:height || 0, kind, post: !!post});
         } catch (_) {}
       };
-      // A link to one post (e.g. Padlet /wish/…) opens it in a dialog; list its images first.
-      for (const dialog of document.querySelectorAll('[role=dialog], [aria-modal=true]')) {
-        for (const img of dialog.querySelectorAll('img')) {
-          if (img.complete && img.naturalWidth) add(img.currentSrc || img.src, img.alt || img.title, img.naturalWidth, img.naturalHeight, 'image', true);
-        }
-      }
-      for (const img of document.images) {
+      for (const img of scope.querySelectorAll('img')) {
         // currentSrc is the actual resource chosen by the browser, including picture/srcset.
         if (!img.complete || !img.naturalWidth) continue;
         add(img.currentSrc || img.src, img.alt || img.title, img.naturalWidth, img.naturalHeight);
       }
-      for (const video of document.querySelectorAll('video')) {
+      for (const video of scope.querySelectorAll('video')) {
         add(video.currentSrc || video.src, video.title || '페이지 동영상', video.videoWidth, video.videoHeight, 'video');
         if (!video.currentSrc) for (const source of video.querySelectorAll('source[src]')) add(source.src, video.title || '페이지 동영상', 0, 0, 'video');
       }
       // Some product cards display their thumbnail as a CSS background.
-      for (const el of Array.from(document.querySelectorAll('*')).slice(0, 20000)) {
+      for (const el of Array.from(scope.querySelectorAll('*')).slice(0, 20000)) {
         const r = el.getBoundingClientRect();
         if (r.width < 48 || r.height < 48) continue;
         const bg = getComputedStyle(el).backgroundImage;
         for (const match of bg.matchAll(/url\(["']?(.*?)["']?\)/g)) add(match[1], el.getAttribute('aria-label') || '', 0, 0);
       }
       const frames = [];
-      for (const frame of document.querySelectorAll('iframe[src]')) {
+      for (const frame of scope.querySelectorAll('iframe[src]')) {
         try {
           const u = new URL(frame.src, document.baseURI), r = frame.getBoundingClientRect();
           if (['http:', 'https:'].includes(u.protocol) && !u.username && !u.password && r.width >= 120 && r.height >= 80 && !frames.includes(u.href) && frames.length < 5) frames.push(u.href);
@@ -96,9 +99,7 @@ import WebKit
         guard let result = raw as? [String: Any], let source = result["source"] as? String,
               webURL(source) != nil, let rows = result["images"] as? [[String: Any]] else { throw failure("페이지 이미지 정보를 읽지 못했습니다.") }
         embeds = (result["frames"] as? [String] ?? []).filter { webURL($0) != nil && $0 != source }
-        let items = Self.items(rows, source: source)
-        guard !items.isEmpty else { throw failure("로드된 이미지를 찾지 못했습니다. 사이트 확인 화면을 직접 완료하고, 사진이 보이도록 스크롤한 뒤 다시 시도해 주세요.") }
-        return items
+        return Self.items(rows, source: source)
     }
     /// Image proxies and resizers (padlet.pics, Next.js /_next/image, wsrv.nl, …) carry the original in a `url` parameter.
     static func original(_ url: URL) -> URL? {

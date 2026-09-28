@@ -38,6 +38,7 @@ import WebKit
                 <video src="https://example.com/movie.mp4" preload="none"></video>
                 <iframe src="https://player.example.com/embed/1" width="640" height="360"></iframe>
                 <iframe src="https://ads.example.com/pixel" width="1" height="1"></iframe>
+                <div role="dialog" style="width:300px;height:60px">Cookies</div>
                 </body></html>
                 """, baseURL: URL(string: "https://example.com/deals/"))
             do {
@@ -51,7 +52,15 @@ import WebKit
                 precondition(images.contains { $0["url"] as? String == "https://example.com/product.jpg" })
                 precondition(images.contains { $0["url"] as? String == "https://example.com/movie.mp4" && $0["kind"] as? String == "video" })
                 precondition(result["frames"] as? [String] == ["https://player.example.com/embed/1"])
-                print("Web images: rendered DOM, relative URL, background, size filter, deduplication, URL safety, embedded players, selection and headers passed")
+                // An opened post (dialog with media) limits the scan to that post.
+                _ = try await browser.webView.evaluateJavaScript("""
+                    document.body.insertAdjacentHTML('beforeend', '<div role="dialog" style="width:700px;height:500px"><video src="https://example.com/post.mp4" preload="none"></video><iframe src="https://player.example.com/embed/post" width="640" height="360"></iframe></div>'); true
+                    """)
+                let scoped = try await browser.webView.evaluateJavaScript(WebImages.script) as! [String: Any]
+                let posted = scoped["images"] as! [[String: Any]]
+                precondition(posted.map { $0["url"] as? String } == ["https://example.com/post.mp4"] && posted[0]["post"] as? Bool == true)
+                precondition(scoped["frames"] as? [String] == ["https://player.example.com/embed/post"])
+                print("Web images: rendered DOM, relative URL, background, size filter, deduplication, URL safety, embedded players, opened-post scope, selection and headers passed")
                 exit(0)
             } catch { print(error); exit(1) }
         }
