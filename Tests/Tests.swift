@@ -53,6 +53,19 @@ import Foundation
         precondition(encode.contains("h264_videotoolbox") && encode.contains("aac_at") && encode.contains("yuv420p"))
         let silent = MP4.arguments(input: "a.webm", output: "b.mp4", ext: "webm", video: "h264", audio: nil)!
         precondition(!silent.contains("aac_at") && silent.contains("0:a:0?"))
+        let video = StreamProgress(id: "v", downloaded: 50, total: 80, speed: 10, eta: 3, finished: false)
+        var one = StreamProgress.combined(["v": video], streams: ["v", "a"], estimate: 100)!
+        precondition(one.total == 100 && one.downloaded == 50 && one.eta == 5 && !one.finished)
+        one = StreamProgress.combined(["v": video], streams: ["v", "a"], estimate: nil)!
+        precondition(one.total == nil && one.fraction == nil)
+        let doneVideo = StreamProgress(id: "v", downloaded: 80, total: 80, speed: nil, eta: nil, finished: true)
+        let audio = StreamProgress(id: "a", downloaded: 10, total: 30, speed: 5, eta: 4, finished: false)
+        let both = StreamProgress.combined(["v": doneVideo, "a": audio], streams: ["v", "a"], estimate: 100)!
+        precondition(both.total == 110 && both.downloaded == 90 && both.speed == 5 && both.eta == 4 && !both.finished)
+        let finished = StreamProgress.combined(["v": doneVideo, "a": StreamProgress(id: "a", downloaded: 30, total: 30, speed: nil, eta: nil, finished: true)], streams: ["v", "a"], estimate: 100)!
+        precondition(finished.finished && finished.fraction == 1)
+        precondition(StreamProgress.combined([:], streams: ["v"], estimate: 1) == nil)
+        print("PASS: combined progress: estimate until all streams start, summed bytes, active speed, finish")
         print("PASS: MP4 plan: already fine, remux, HEVC tag, VP9/Opus re-encode, no audio")
         print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")

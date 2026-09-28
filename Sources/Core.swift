@@ -139,6 +139,21 @@ struct StreamProgress {
     var eta: Double?
     var finished: Bool
     var fraction: Double? { if finished { return 1 }; guard let total, total > 0 else { return nil }; return max(0, min(0.999, downloaded / total)) }
+    /// One bar for a download made of several streams (video + audio) that yt-dlp fetches one after another.
+    /// Until every stream has started, the total falls back to the preview's size estimate.
+    static func combined(_ parts: [String: StreamProgress], streams: [String], estimate: Double?) -> StreamProgress? {
+        guard !parts.isEmpty else { return nil }
+        let downloaded = parts.values.map(\.downloaded).reduce(0, +)
+        let allStarted = parts.count >= max(streams.count, 1)
+        var total: Double?
+        if parts.values.allSatisfy({ $0.total != nil }) {
+            let known = parts.values.compactMap(\.total).reduce(0, +)
+            total = allStarted ? known : estimate.map { max($0, known) }
+        }
+        let speed = parts.values.first { !$0.finished }?.speed
+        let eta = total.flatMap { t in speed.map { max(0, t - downloaded) / max(1, $0) } }
+        return StreamProgress(id: "all", downloaded: downloaded, total: total, speed: speed, eta: eta, finished: allStarted && parts.values.allSatisfy(\.finished))
+    }
     static func parse(_ line: String) -> StreamProgress? {
         guard line.hasPrefix("ODP\t") else { return nil }
         let f = line.components(separatedBy: "\t")

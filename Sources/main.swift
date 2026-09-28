@@ -60,19 +60,18 @@ struct DownloadProgress: View {
     let item: MediaItem
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(item.progress.keys.sorted(), id: \.self) { key in
-                if let p = item.progress[key] {
-                    HStack {
-                        Text(item.selectedFormat.streamIDs.count > 1 ? (key == item.selectedFormat.streamIDs.first ? "영상 다운로드" : "음성 다운로드") : "파일 다운로드").foregroundStyle(.secondary)
-                        Spacer()
-                        Text(p.fraction.map { "\(Int($0 * 100))%" } ?? "크기 미상").monospacedDigit().bold()
-                        Text("\(bytes(p.downloaded)) / \(bytes(p.total))").foregroundStyle(.secondary)
-                    }.font(.caption)
-                    if let value = p.fraction { ProgressView(value: value).tint(.mint) }
-                    else { ProgressView().progressViewStyle(.linear).tint(.mint) }
-                    if !p.finished {
-                        HStack { Text(p.speed.map { bytes($0) + "/s" } ?? "속도 계산 중"); Spacer(); Text(p.eta.map { "남은 시간 " + durationText($0) } ?? "남은 시간 계산 중") }.font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-                    }
+            // Video and audio streams download one after another; show them as one bar.
+            if let p = StreamProgress.combined(item.progress, streams: item.selectedFormat.streamIDs, estimate: item.selectedFormat.size) {
+                HStack {
+                    Text("다운로드").foregroundStyle(.secondary)
+                    Spacer()
+                    Text(p.fraction.map { "\(Int($0 * 100))%" } ?? "크기 미상").monospacedDigit().bold()
+                    Text("\(bytes(p.downloaded)) / \(p.total.map { (item.progress.count < item.selectedFormat.streamIDs.count ? "약 " : "") + bytes($0) } ?? bytes(nil))").foregroundStyle(.secondary)
+                }.font(.caption)
+                if let value = p.fraction { ProgressView(value: value).tint(.mint) }
+                else { ProgressView().progressViewStyle(.linear).tint(.mint) }
+                if !p.finished {
+                    HStack { Text(p.speed.map { bytes($0) + "/s" } ?? "속도 계산 중"); Spacer(); Text(p.eta.map { "남은 시간 " + durationText($0) } ?? "남은 시간 계산 중") }.font(.caption2).foregroundStyle(.secondary).monospacedDigit()
                 }
             }
             if ["연결 중","영상·음성 병합 중","저장 확인 중","다음 단계 준비 중","MP4로 변환 중","MP4로 옮기는 중"].contains(item.state) {
