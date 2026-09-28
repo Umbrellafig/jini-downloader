@@ -9,6 +9,10 @@ import AppKit
     /// keeps the site's streams untouched in MKV instead.
     @Published var keepOriginalVideo = UserDefaults.standard.bool(forKey: "keepOriginalVideo") { didSet { UserDefaults.standard.set(keepOriginalVideo, forKey: "keepOriginalVideo") } }
     var videoContainer: VideoContainer { keepOriginalVideo ? .mkv : .mp4 }
+    /// Offer to analyze a link found on the clipboard when the app comes forward.
+    @Published var watchClipboard = UserDefaults.standard.object(forKey: "watchClipboard") as? Bool ?? true { didSet { UserDefaults.standard.set(watchClipboard, forKey: "watchClipboard"); if !watchClipboard { clipboardOffer = false } } }
+    @Published var clipboardOffer = false
+    private var offeredChange = -1
     /// Advanced option: write a `.download.txt` record (source page, format, size, time) next to each saved file.
     @Published var writeRecord = UserDefaults.standard.bool(forKey: "writeDownloadRecord") { didSet { UserDefaults.standard.set(writeRecord, forKey: "writeDownloadRecord") } }
     @Published var items: [MediaItem] = []
@@ -62,6 +66,30 @@ import AppKit
                 enginesReady = installer.ready; status = "설치 완료 · 미리보기를 분석할 수 있습니다"
             } catch { status = Task.isCancelled ? "설치를 취소했습니다" : "설치 실패 · 상세 로그를 확인하고 다시 시도해 주세요"; note(error.localizedDescription) }
         }
+    }
+    /// Checks only whether the clipboard holds a link, which macOS allows without a paste alert; the contents are read
+    /// when the user accepts the offer. Each clipboard change is offered once.
+    func checkClipboard() async {
+        let pasteboard = NSPasteboard.general
+        guard watchClipboard, !busy, pasteboard.changeCount != offeredChange else { return }
+        offeredChange = pasteboard.changeCount
+        if #available(macOS 15.4, *) {
+            clipboardOffer = (try? await pasteboard.detectedPatterns(for: [\.probableWebURL]))?.contains(\.probableWebURL) ?? false
+        } else {
+            clipboardOffer = !webLinks(in: pasteboard.string(forType: .string) ?? "").isEmpty
+        }
+    }
+    func acceptClipboard() {
+        clipboardOffer = false
+        paste()
+        if !input.isEmpty && enginesReady { analyze() }
+    }
+    /// Pastes the clipboard's links, one per line; text without links is pasted as it is.
+    func paste() {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        let links = webLinks(in: text)
+        input = links.isEmpty ? text : links.joined(separator: "\n")
+        offeredChange = NSPasteboard.general.changeCount; clipboardOffer = false
     }
     func note(_ s: String) { guard !s.isEmpty else { return }; log += "\n" + s; if log.count > 36000 { log = String(log.suffix(28000)) } }
     func choose() { let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.directoryURL = folder; if p.runModal() == .OK, let u = p.url { folder = u; UserDefaults.standard.set(u.path, forKey: "saveFolder") } }

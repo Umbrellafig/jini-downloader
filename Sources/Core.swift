@@ -7,6 +7,13 @@ func number(_ dict: [String: Any], _ key: String) -> Double? { if let n = dict[k
 func durationText(_ seconds: Double?) -> String { guard let seconds, seconds.isFinite, seconds >= 0 else { return "시간 정보 없음" }; let n = Int(seconds); return n >= 3600 ? String(format: "%d:%02d:%02d", n/3600, n/60%60, n%60) : String(format: "%d:%02d", n/60, n%60) }
 func safeName(_ value: String) -> String { let s = (value as NSString).lastPathComponent.replacingOccurrences(of: ":", with: "_").replacingOccurrences(of: "\n", with: " "); return s.isEmpty || s == "." || s == ".." ? "download" : String(s.prefix(180)) }
 func webURL(_ value: String) -> URL? { guard let u = URL(string: value), let host = u.host, !host.isEmpty, ["http", "https"].contains(u.scheme?.lowercased() ?? ""), u.user == nil, u.password == nil else { return nil }; return u }
+/// Web links in pasted or dropped text, in order and without duplicates; plain text without links yields none.
+func webLinks(in text: String) -> [String] {
+    let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    let matches = detector?.matches(in: text, range: NSRange(text.startIndex..., in: text)) ?? []
+    var seen = Set<String>()
+    return matches.compactMap { $0.url?.absoluteString }.filter { webURL($0) != nil && seen.insert($0).inserted }
+}
 struct FormatChoice: Identifiable {
     var id: String
     var ext: String

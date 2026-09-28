@@ -175,6 +175,10 @@ struct SettingsView: View {
                     Button("폴더 열기") { NSWorkspace.shared.open(m.folder) }
                 }
             }
+            Section("일반") {
+                Toggle("클립보드에 링크가 있으면 분석할지 물어보기", isOn: $m.watchClipboard)
+                Text("앱으로 돌아올 때 링크가 복사되어 있으면 알려 줍니다. 링크가 있는지만 확인하고, 내용은 ‘붙여넣고 분석’을 누를 때만 읽습니다.").font(.caption).foregroundStyle(.secondary)
+            }
             Section("고급") {
                 Toggle("동영상을 원본 형식(MKV)으로 저장", isOn: $m.keepOriginalVideo)
                 Text("기본은 QuickTime·사진 앱·아이폰에서 바로 열리는 MP4입니다. H.264·HEVC·AV1 영상은 재인코딩 없이 옮기고, VP9 등만 H.264로 변환합니다. 켜면 사이트가 주는 영상·음성을 변환 없이 MKV에 담습니다. 화질 손실이 전혀 없지만 일부 앱에서는 열리지 않습니다.").font(.caption).foregroundStyle(.secondary)
@@ -214,12 +218,21 @@ struct ContentView: View {
             }.padding(24).frame(width: 192).frame(maxHeight: .infinity).background(Color.black.opacity(0.18))
             VStack(alignment: .leading, spacing: 12) {
                 HStack { Text("받을 파일을 먼저 확인하세요").font(.title.bold()); Spacer(); Text("PREVIEW & DOWNLOAD").font(.system(size: 10, weight: .semibold)).foregroundStyle(.mint) }
+                if m.clipboardOffer && !m.busy {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.on.clipboard").foregroundStyle(.mint)
+                        Text("클립보드에 링크가 있어요").font(.callout)
+                        Spacer()
+                        Button("붙여넣고 분석") { m.acceptClipboard() }.buttonStyle(.borderedProminent).tint(.mint).foregroundStyle(.black).disabled(!m.enginesReady)
+                        Button("닫기") { m.clipboardOffer = false }
+                    }.padding(.horizontal, 12).padding(.vertical, 8).background(Color.mint.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 10))
+                }
                 ZStack(alignment: .topLeading) {
                     if m.input.isEmpty { Text("https://…  링크를 한 줄에 하나씩 입력하세요").foregroundStyle(.tertiary).padding(10) }
                     TextEditor(text: $m.input).font(.system(.body, design: .monospaced)).scrollContentBackground(.hidden).padding(5).accessibilityLabel("미디어 URL")
                 }.frame(height: 60).background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.1))).disabled(m.busy)
                 HStack {
-                    Button("붙여넣기") { if let s = NSPasteboard.general.string(forType: .string) { m.input = s } }.disabled(m.busy)
+                    Button("붙여넣기") { m.paste() }.disabled(m.busy)
                     Spacer()
                     Button("분석하기") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
                 }
@@ -309,7 +322,8 @@ struct ContentView: View {
             }.padding(24).frame(minWidth: 690).disabled(updates.sessionActive)
         }.frame(minWidth: 1000, minHeight: 770).preferredColorScheme(.dark)
         .sheet(item: $previewing) { PreviewSheet(item: $0) }
-        .onAppear { Installation.checkOnce() }
+        .onAppear { Installation.checkOnce(); Task { await m.checkClipboard() } }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await m.checkClipboard() } }
         .onChange(of: m.busy) { busy in if !busy { updates.workFinished() } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in m.stop() }
     }

@@ -65,6 +65,9 @@ import Foundation
         let finished = StreamProgress.combined(["v": doneVideo, "a": StreamProgress(id: "a", downloaded: 30, total: 30, speed: nil, eta: nil, finished: true)], streams: ["v", "a"], estimate: 100)!
         precondition(finished.finished && finished.fraction == 1)
         precondition(StreamProgress.combined([:], streams: ["v"], estimate: 1) == nil)
+        precondition(webLinks(in: "보세요 https://a.com/x 그리고\nhttps://b.com/y?z=1 https://a.com/x ftp://c.com") == ["https://a.com/x", "https://b.com/y?z=1"])
+        precondition(webLinks(in: "그냥 글자") == [])
+        print("PASS: web links in pasted text: order, duplicates, non-web schemes")
         print("PASS: combined progress: estimate until all streams start, summed bytes, active speed, finish")
         print("PASS: MP4 plan: already fine, remux, HEVC tag, VP9/Opus re-encode, no audio")
         print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
