@@ -42,7 +42,7 @@ import UserNotifications
     @Published var log = L("링크를 넣고 미리보기를 분석하세요.", "Enter links and analyze them.")
     @Published var busy = false
     @Published var analyzing = false
-    @Published var status = L("다운로드 전에 받을 파일을 확인하세요", "Check the files before downloading")
+    @Published var status = ""
     @Published var previewErrors: [String] = []
     @Published var enginesReady = false
     @Published var installing = false
@@ -177,6 +177,8 @@ import UserNotifications
     func choose() { let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.directoryURL = folder; if p.runModal() == .OK, let u = p.url { folder = u; UserDefaults.standard.set(u.path, forKey: "saveFolder") } }
     func stop() { cancelled = true; task?.cancel(); runner?.cancel(); transfer?.cancel(); status = L("취소 중…", "Cancelling…") }
     func invalidateSelection(_ id: UUID) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = "준비됨"; items[i].error = ""; items[i].progress = [:]; items[i].output = nil; items[i].queue = nil } }
+    /// Empties the analyzed list, the downloads and the links for a fresh start; saved files stay.
+    func clearList() { guard !busy else { return }; items = []; previewErrors = []; input = ""; snapshot = ""; status = "" }
     func clearFinished() { items.removeAll { $0.state == "완료" } }
     func appendResults(_ found: [MediaItem]) {
         var seen = Set(items.map(\.url))
@@ -238,7 +240,7 @@ import UserNotifications
             }
             await probeDirect(items.filter { $0.engine == "direct" }.map(\.id))
             snapshot = sig
-            status = cancelled ? L("분석 중단 · 찾은 파일은 선택해서 받을 수 있습니다", "Analysis stopped · you can still download what was found") : L("\(items.count)개 파일 · 원하는 항목을 선택하거나 전체 다운로드하세요", "\(items.count) files · choose items or download all")
+            status = cancelled ? L("분석 중단 · 찾은 파일은 선택해서 받을 수 있습니다", "Analysis stopped · you can still download what was found") : L("\(items.count)개 찾음", "\(items.count) found")
             // Runs after this task's cleanup has cleared busy, so the download can start.
             if instantDownload && !cancelled { Task { @MainActor in self.startInstant() } }
         }

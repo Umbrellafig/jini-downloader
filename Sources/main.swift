@@ -159,7 +159,7 @@ struct MediaRow: View {
             if let output = item.output {
                 HStack {
                     // Dragging the saved line hands the file to Finder or another app.
-                    Label(L("저장 완료 · 끌어서 다른 곳에 놓을 수 있어요", "Saved · drag it anywhere"), systemImage: "checkmark.circle.fill").foregroundStyle(.mint)
+                    Label(L("저장 완료", "Saved"), systemImage: "checkmark.circle.fill").foregroundStyle(.mint)
                         .onDrag { NSItemProvider(contentsOf: output) ?? NSItemProvider() }
                     Spacer()
                     Button(L("미리보기", "Preview")) { onPreview() }.help(L("Quick Look으로 받은 파일 보기", "View the file in Quick Look"))
@@ -283,6 +283,7 @@ struct BrowserSheet: View {
 }
 struct SettingsView: View {
     @ObservedObject var m: Model
+    @ObservedObject var updates: AppUpdater
     var body: some View {
         Form {
             Section(L("다운로드 위치", "Download Location")) {
@@ -293,7 +294,6 @@ struct SettingsView: View {
                     Button(L("변경…", "Change…")) { m.choose() }
                 }
                 HStack {
-                    Text(m.usesDefaultFolder ? L("기본 위치(다운로드 폴더)에 저장합니다.", "Saving to the default location (Downloads).") : L("지정한 폴더에 저장합니다.", "Saving to the chosen folder.")).font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button(L("다운로드 폴더로 되돌리기", "Use Downloads")) { m.resetFolder() }.disabled(m.usesDefaultFolder)
                     Button(L("폴더 열기", "Open Folder")) { NSWorkspace.shared.open(m.folder) }
@@ -302,34 +302,34 @@ struct SettingsView: View {
             Section(L("일반", "General")) {
                 Picker(L("언어", "Language"), selection: $m.language) { ForEach(AppLanguage.allCases) { Text($0.label).tag($0) } }
                 Toggle(L("분석이 끝나면 바로 받기", "Download right after analysis"), isOn: $m.instantDownload)
-                Text(L("동영상이 있으면 모든 동영상을 가장 좋은 품질로, 없으면 열린 게시물이나 사진 모음의 파일을 바로 받습니다. 페이지 장식 이미지는 받지 않습니다.", "Downloads every video at the best quality, or, without videos, the files of an opened post or photo gallery. Page decoration isn't downloaded.")).font(.caption).foregroundStyle(.secondary)
                 Toggle(L("다운로드가 끝나면 알림 보내기", "Notify when downloads finish"), isOn: $m.notifyWhenDone)
-                Text(L("다른 앱을 쓰는 동안 다운로드가 끝나면 알려 줍니다. 진행 중에는 Dock 아이콘에 남은 파일 수를 표시합니다.", "Notifies you when downloads finish while you use another app. The Dock icon shows the files left while downloading.")).font(.caption).foregroundStyle(.secondary)
                 Toggle(L("클립보드에 링크가 있으면 분석할지 물어보기", "Offer to analyze copied links"), isOn: $m.watchClipboard)
-                Text(L("앱으로 돌아올 때 링크가 복사되어 있으면 알려 줍니다. 링크가 있는지만 확인하고, 내용은 ‘붙여넣고 분석’을 누를 때만 읽습니다.", "When you come back to the app with a link copied, it offers to analyze it. It only checks whether a link is there and reads it when you press Paste and Analyze.")).font(.caption).foregroundStyle(.secondary)
             }
             Section(L("고급", "Advanced")) {
                 Picker(L("동영상 파일 이름", "Video file name"), selection: $m.naming) { ForEach(FileNaming.allCases) { Text($0.label).tag($0) } }
-                Text(L("예: \(m.naming.example) · 사이트가 날짜나 채널을 알려 주지 않으면 그 부분은 빼고 저장합니다.", "Example: \(m.naming.example) · parts the site doesn't provide, like the date or channel, are left out.")).font(.caption).foregroundStyle(.secondary)
+                Text(L("예: \(m.naming.example)", "Example: \(m.naming.example)")).font(.caption).foregroundStyle(.secondary)
                 Toggle(L("사이트별 폴더에 나눠 저장", "Save into a folder per site"), isOn: $m.folderPerSite)
-                Text(L("켜면 저장 위치 안에 youtube.com처럼 사이트 이름의 폴더를 만들어 나눠 저장합니다.", "Creates folders named after each site, like youtube.com, inside the download location.")).font(.caption).foregroundStyle(.secondary)
                 Toggle(L("동영상 자막도 받기", "Download video subtitles"), isOn: $m.subtitlesEnabled)
                 if m.subtitlesEnabled {
                     TextField(L("자막 언어", "Subtitle languages"), text: $m.subtitleLanguages, prompt: Text("ko,en"))
                     Toggle(L("자동 생성 자막도 받기", "Include auto-generated subtitles"), isOn: $m.autoSubtitles)
                     Picker(L("저장 방식", "Save as"), selection: $m.embedSubtitles) { Text(L("별도 파일(.srt)", "Separate file (.srt)")).tag(false); Text(L("영상에 넣기", "Inside the video")).tag(true) }.pickerStyle(.segmented)
+                    Text(L("쉼표로 구분 · 모든 언어는 all", "Comma-separated · all for every language")).font(.caption).foregroundStyle(.secondary)
                 }
-                Text(L("언어 코드를 쉼표로 구분합니다(예: ko,en, 모든 언어는 all). 별도 파일은 영상과 같은 이름의 .srt로, ‘영상에 넣기’는 영상 안의 자막 트랙으로 저장합니다. 사이트에 자막이 없으면 영상만 받습니다.", "Separate language codes with commas (e.g. ko,en, or all). A separate file is an .srt named like the video; Inside the video adds a subtitle track. Without subtitles on the site, only the video is saved.")).font(.caption).foregroundStyle(.secondary)
                 Toggle(L("다운로드 기록 남기기", "Keep download history"), isOn: $m.keepHistory)
-                HStack {
-                    Text(L("받은 파일의 제목·출처·저장 위치를 이 Mac에만 남겨 다시 넣은 링크에 ‘이전에 받음’을 표시합니다. 기록은 ⌘Y로 볼 수 있습니다.", "Keeps the title, source and location of downloads on this Mac only, and marks links you enter again as Downloaded before. Open it with ⌘Y.")).font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(L("기록 지우기", "Clear History")) { m.history.clear() }.disabled(m.history.entries.isEmpty)
-                }
+                HStack { Spacer(); Button(L("기록 지우기", "Clear History")) { m.history.clear() }.disabled(m.history.entries.isEmpty) }
                 Toggle(L("동영상을 원본 형식(MKV)으로 저장", "Save videos in the original format (MKV)"), isOn: $m.keepOriginalVideo)
-                Text(L("기본은 QuickTime·사진 앱·아이폰에서 바로 열리는 MP4입니다. H.264·HEVC·AV1 영상은 재인코딩 없이 옮기고, VP9 등만 H.264로 변환합니다. 켜면 사이트가 주는 영상·음성을 변환 없이 MKV에 담습니다. 화질 손실이 전혀 없지만 일부 앱에서는 열리지 않습니다.", "By default videos are MP4, which opens in QuickTime, Photos and on iPhone. H.264, HEVC and AV1 video is copied as it is; only VP9 and similar are converted to H.264. When on, the site's streams go into MKV untouched: no quality loss, but some apps can't open it.")).font(.caption).foregroundStyle(.secondary)
+                Text(L("일부 앱에서는 열리지 않아요", "Some apps can't open it")).font(.caption).foregroundStyle(.secondary)
                 Toggle(L("다운로드 기록 파일(.download.txt)도 함께 저장", "Also save a download record (.download.txt)"), isOn: $m.writeRecord)
-                Text(L("켜면 받은 파일 옆에 원본 페이지·선택 포맷·용량·저장 시각을 적은 텍스트 파일을 만듭니다. 출처를 남겨야 할 때만 켜세요.", "Writes a text file next to each download with the source page, format, size and time. Turn on only when you need to keep sources.")).font(.caption).foregroundStyle(.secondary)
+            }
+            Section(L("업데이트", "Updates")) {
+                Toggle(L("자동으로 업데이트 확인", "Check for updates automatically"), isOn: Binding(get: { updates.automaticallyChecks }, set: { updates.setAutomatic($0) }))
+                HStack {
+                    Text(L("버전 \(AppUpdater.version)", "Version \(AppUpdater.version)")).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(L("업데이트 확인…", "Check for Updates…")) { updates.check() }.disabled(!updates.canCheck)
+                }
+                Link(L("도구·라이선스 안내", "Tools and licenses"), destination: URL(string: "https://github.com/Umbrellafig/jini-downloader/blob/main/docs/ENGINES.md")!).font(.caption)
             }
         }.formStyle(.grouped).frame(width: 520).disabled(m.busy)
     }
@@ -353,24 +353,7 @@ struct ContentView: View {
     }
     var body: some View {
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 20) {
-                Image(systemName: "arrow.down.to.line.circle.fill").font(.system(size: 42)).foregroundStyle(.mint)
-                Text(L("지니 다운로더", "Jini Downloader")).font(.system(size: 22, weight: .bold))
-                Text(L("확인하고,\n원하는 품질로.", "Check first,\nsave the quality you want.")).font(.title2).foregroundStyle(.secondary)
-                Divider()
-                Label(L("1  링크 분석", "1  Analyze links"), systemImage: "link")
-                Label(L("2  파일·품질 선택", "2  Pick files and quality"), systemImage: "checklist")
-                Label(L("3  다운로드", "3  Download"), systemImage: "arrow.down")
-                Spacer()
-                Text(L("원본에 대한 안내", "About originals")).font(.caption.bold())
-                Text(L("유튜브 업로드 원본과\n서비스가 제공하는 영상은\n다릅니다. 앱은 제공되는\n스트림을 추가 압축 없이\n저장합니다.", "What a service streams\ndiffers from the file that\nwas uploaded. The app saves\nthe streams it provides\nwithout extra compression.")).font(.caption).foregroundStyle(.secondary).lineSpacing(4)
-                Text("VERSION \(AppUpdater.version)").font(.caption2).foregroundStyle(.tertiary)
-                Button(L("업데이트 확인…", "Check for Updates…")) { updates.check() }.disabled(m.busy || !updates.canCheck)
-                Toggle(L("자동으로 업데이트 확인", "Check for updates automatically"), isOn: Binding(get: { updates.automaticallyChecks }, set: { updates.setAutomatic($0) })).font(.caption).toggleStyle(.checkbox)
-                Text(m.busy ? L("작업 완료 후 업데이트할 수 있습니다", "You can update when the job finishes") : updates.status).font(.caption2).foregroundStyle(.secondary)
-            }.padding(24).frame(width: 192).frame(maxHeight: .infinity).background(Color.black.opacity(0.18))
             VStack(alignment: .leading, spacing: 12) {
-                HStack { Text(L("받을 파일을 먼저 확인하세요", "Check files before downloading")).font(.title.bold()); Spacer(); Text("PREVIEW & DOWNLOAD").font(.system(size: 10, weight: .semibold)).foregroundStyle(.mint) }
                 if m.clipboardOffer && !m.busy {
                     HStack(spacing: 10) {
                         Image(systemName: "doc.on.clipboard").foregroundStyle(.mint)
@@ -381,7 +364,7 @@ struct ContentView: View {
                     }.padding(.horizontal, 12).padding(.vertical, 8).background(Color.mint.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 ZStack(alignment: .topLeading) {
-                    if m.input.isEmpty { Text(L("https://…  링크를 한 줄에 하나씩 입력하세요", "https://…  one link per line")).foregroundStyle(.tertiary).padding(10) }
+                    if m.input.isEmpty { Text(L("링크를 붙여넣으세요", "Paste links")).foregroundStyle(.tertiary).padding(10) }
                     TextEditor(text: $m.input).font(.system(.body, design: .monospaced)).scrollContentBackground(.hidden).padding(5).accessibilityLabel(L("미디어 URL", "Media URLs"))
                 }.frame(height: 60).background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.1))).disabled(m.busy)
                 HStack {
@@ -394,15 +377,12 @@ struct ContentView: View {
                 Divider()
                 if !m.enginesReady {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(L("첫 실행 준비", "First-run setup")).font(.headline)
-                        Text(L("다운로드와 영상 병합에 필요한 도구를 한 번 설치합니다 (약 \(m.engineDownloadSize)). 관리자 암호는 필요하지 않습니다.", "Installs the tools needed to download and merge videos once (about \(m.engineDownloadSize)). No administrator password is needed.")).font(.caption).foregroundStyle(.secondary)
-                        Text(L("yt-dlp·gallery-dl·Deno: 각 GitHub 배포처 / FFmpeg·FFprobe: Martin Riedl의 macOS 빌드. 버전과 SHA-256을 확인한 뒤 설치합니다.", "yt-dlp, gallery-dl, Deno: their GitHub releases / FFmpeg, FFprobe: Martin Riedl's macOS builds. Versions and SHA-256 are checked before installing.")).font(.caption2).foregroundStyle(.secondary)
                         HStack {
-                            Link(L("도구·라이선스 안내", "Tools and licenses"), destination: URL(string: "https://github.com/Umbrellafig/jini-downloader/blob/main/docs/ENGINES.md")!).font(.caption)
+                            Text(L("처음 한 번 필요한 도구를 설치해요 · 약 \(m.engineDownloadSize)", "Install the required tools once · about \(m.engineDownloadSize)")).font(.callout)
                             Spacer()
                             Button(m.installing ? L("설치 중…", "Installing…") : L("필수 도구 설치", "Install Required Tools")) { m.installEngines() }.disabled(m.busy).buttonStyle(.borderedProminent).tint(.mint).foregroundStyle(.black)
                         }
-                        if m.installing { ProgressView(value: m.installProgress).tint(.mint); Text(L("설치 단계 진행", "Installing")).font(.caption2).foregroundStyle(.secondary) }
+                        if m.installing { ProgressView(value: m.installProgress).tint(.mint) }
                     }.padding(14).background(Color.mint.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 HStack { if m.busy { ProgressView().controlSize(.small) }; Text(m.status).font(.callout).lineLimit(1); Spacer(); if m.busy { Button(L("취소", "Cancel"), role: .cancel) { m.stop() } } }
@@ -416,8 +396,6 @@ struct ContentView: View {
                                 if n > 0 || kind != .other { Text("\(kind.label) \(n)").tag(MediaKind?.some(kind)) }
                             }
                         }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 360)
-                        Spacer()
-                        Text(L("열 이름을 눌러 정렬", "Click a column to sort")).font(.caption2).foregroundStyle(.tertiary)
                     }
                     ColumnHeader(sort: $sort, allSelected: Binding(
                         get: { !shown.isEmpty && shown.allSatisfy(\.selected) },
@@ -427,7 +405,7 @@ struct ContentView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 3) {
                         if m.items.isEmpty && !m.busy {
-                            VStack(spacing: 12) { Image(systemName: "rectangle.stack.badge.play").font(.system(size: 44)).foregroundStyle(.mint.opacity(0.6)); Text(L("다운로드 전에 이름·화질·용량을 확인하세요", "Check names, quality and sizes before downloading")).font(.headline); Text(L("분석하기 → 이미지·동영상 확인 → 선택 또는 전체 다운로드", "Analyze → check images and videos → download selected or all")).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 55)
+                            VStack(spacing: 12) { Image(systemName: "rectangle.stack.badge.play").font(.system(size: 44)).foregroundStyle(.mint.opacity(0.6)); Text(L("링크를 붙여넣거나 끌어다 놓으세요", "Paste or drop a link")).foregroundStyle(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 55)
                         }
                         ForEach(shown) { row in
                             if let i = m.items.firstIndex(where: { $0.id == row.id }) {
@@ -445,11 +423,8 @@ struct ContentView: View {
                     }.padding(.vertical, 2)
                 }.frame(minHeight: 160)
                 HStack {
-                    if !m.items.isEmpty {
-                        // Selection follows the visible list, so a filtered kind can be picked in one step.
-                        let ids = Set(shown.map(\.id))
-                        Button(kindFilter.map { L("\($0.label) 모두 선택", "Select all \($0.label.lowercased())") } ?? L("전체 선택", "Select All")) { for i in m.items.indices where ids.contains(m.items[i].id) { m.items[i].selected = true } }.disabled(m.busy)
-                        Button(L("해제", "Deselect")) { for i in m.items.indices where ids.contains(m.items[i].id) { m.items[i].selected = false } }.disabled(m.busy)
+                    if !m.items.isEmpty || !m.previewErrors.isEmpty {
+                        Button(L("목록 지우기", "Clear List")) { m.clearList(); kindFilter = nil; sort = nil }.disabled(m.busy).help(L("받은 파일은 그대로 둬요", "Saved files stay"))
                     }
                     Text(L("\(m.selectedCount)개 · \(m.selectedSize)", "\(m.selectedCount) · \(m.selectedSize)")).font(.caption).foregroundStyle(.secondary)
                     Spacer()
@@ -478,9 +453,8 @@ struct ContentView: View {
                     }.padding(10).background(Color.black.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 DisclosureGroup(L("상세 로그", "Details"), isExpanded: $showLog) { ScrollView { Text(m.log).font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(8) }.frame(height: 100).background(Color.black.opacity(0.12)) }.font(.caption)
-                Text(L("용량은 서버 정보 기준이며 ‘약’은 추정값입니다. 병합 후 크기는 달라질 수 있습니다.", "Sizes come from the server; ~ marks an estimate. Merged files can differ in size.")).font(.caption2).foregroundStyle(.secondary)
-            }.padding(24).frame(minWidth: 690).disabled(updates.sessionActive)
-        }.frame(minWidth: 1000, minHeight: 770).preferredColorScheme(.dark)
+            }.padding(24).frame(minWidth: 760).disabled(updates.sessionActive)
+        }.frame(minWidth: 800, minHeight: 640).preferredColorScheme(.dark)
         .onDrop(of: [.url, .fileURL, .plainText], isTargeted: $dropping) { providers in
             dropped(providers) { m.receive(links: $0) }; return true
         }
@@ -559,6 +533,6 @@ func dropped(_ providers: [NSItemProvider], then deliver: @escaping @MainActor (
                 CommandGroup(before: .windowList) { HistoryCommand() }
             }
         Window(L("다운로드 기록", "Download History"), id: "history") { HistoryView(m: model, history: model.history) }
-        Settings { SettingsView(m: model) }
+        Settings { SettingsView(m: model, updates: updates) }
     }
 }
