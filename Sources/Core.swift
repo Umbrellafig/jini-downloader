@@ -31,9 +31,18 @@ enum MediaKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var symbol: String { switch self { case .image: "photo"; case .video: "play.rectangle"; case .other: "doc" } }
 }
-enum SizeOrder: String, CaseIterable, Identifiable {
-    case found = "찾은 순서", largest = "용량 큰 순", smallest = "용량 작은 순"
+enum SortColumn: String, CaseIterable, Identifiable {
+    case name = "파일명", kind = "종류", format = "포맷", quality = "품질", size = "용량"
     var id: String { rawValue }
+}
+struct ColumnSort: Equatable {
+    var column: SortColumn
+    var ascending = true
+    /// Header click cycle: ascending → descending → found order (nil); another column starts ascending.
+    static func next(_ current: ColumnSort?, clicked column: SortColumn) -> ColumnSort? {
+        guard let current, current.column == column else { return ColumnSort(column: column) }
+        return current.ascending ? ColumnSort(column: column, ascending: false) : nil
+    }
 }
 struct MediaItem: Identifiable {
     let id = UUID()
@@ -63,18 +72,36 @@ struct MediaItem: Identifiable {
         return .other
     }
 }
+enum SortKey { case number(Double), text(String) }
+extension MediaItem {
+    /// nil means unknown; unknown values stay at the end in either direction.
+    func sortKey(_ column: SortColumn) -> SortKey? {
+        switch column {
+        case .name: return .text(title)
+        case .kind: return .number(Double(MediaKind.allCases.firstIndex(of: kind) ?? 0))
+        case .format: let ext = selectedFormat.ext.lowercased(); return ext == "?" || ext.isEmpty ? nil : .text(ext)
+        case .quality: return selectedFormat.height > 0 ? .number(Double(selectedFormat.height)) : nil
+        case .size: return selectedFormat.size.map { .number($0) }
+        }
+    }
+}
 extension Array where Element == MediaItem {
-    /// Items of one kind (nil: all) in the chosen order. Unknown sizes always go last; ties keep the found order.
-    func arranged(kind: MediaKind?, order: SizeOrder) -> [MediaItem] {
+    /// Items of one kind (nil: all), sorted by a column (nil: found order). Ties keep the found order.
+    func arranged(kind: MediaKind?, sort: ColumnSort?) -> [MediaItem] {
         let shown = filter { kind == nil || $0.kind == kind }
-        guard order != .found else { return shown }
+        guard let sort else { return shown }
         return shown.enumerated().sorted { a, b in
-            switch (a.element.selectedFormat.size, b.element.selectedFormat.size) {
-            case let (x?, y?) where x != y: return order == .largest ? x > y : x < y
+            let result: ComparisonResult
+            switch (a.element.sortKey(sort.column), b.element.sortKey(sort.column)) {
+            case (nil, nil): result = .orderedSame
             case (_?, nil): return true
             case (nil, _?): return false
-            default: return a.offset < b.offset
+            case let (.number(x)?, .number(y)?): result = x < y ? .orderedAscending : x > y ? .orderedDescending : .orderedSame
+            case let (.text(x)?, .text(y)?): result = x.localizedStandardCompare(y)
+            default: result = .orderedSame
             }
+            if result != .orderedSame { return (result == .orderedAscending) == sort.ascending }
+            return a.offset < b.offset
         }.map(\.element)
     }
 }

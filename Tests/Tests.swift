@@ -32,11 +32,19 @@ import Foundation
         }
         let found = [file("a", "png", 10), file("b", "?", nil, video: true), file("c", "jpg", nil), file("d", "mp4", 30), file("e", "webp", 20), file("f", "mp3", 5)]
         precondition(found.map(\.kind) == [.image, .video, .image, .video, .image, .other])
-        precondition(found.arranged(kind: nil, order: .found).map(\.title) == ["a", "b", "c", "d", "e", "f"])
-        precondition(found.arranged(kind: .image, order: .largest).map(\.title) == ["e", "a", "c"])
-        precondition(found.arranged(kind: nil, order: .smallest).map(\.title) == ["f", "a", "e", "d", "b", "c"])
-        precondition(found.arranged(kind: .video, order: .largest).map(\.title) == ["d", "b"])
-        print("PASS: media kinds, kind filter, size order with unknown sizes last")
+        precondition(found.arranged(kind: nil, sort: nil).map(\.title) == ["a", "b", "c", "d", "e", "f"])
+        precondition(found.arranged(kind: .image, sort: ColumnSort(column: .size, ascending: false)).map(\.title) == ["e", "a", "c"])
+        precondition(found.arranged(kind: nil, sort: ColumnSort(column: .size)).map(\.title) == ["f", "a", "e", "d", "b", "c"])
+        precondition(found.arranged(kind: .video, sort: ColumnSort(column: .size, ascending: false)).map(\.title) == ["d", "b"])
+        precondition(found.arranged(kind: nil, sort: ColumnSort(column: .format)).map(\.title) == ["c", "f", "d", "a", "e", "b"])
+        let named = [file("img10", "png", 1), file("img2", "png", 1), file("Img1", "png", 1)]
+        precondition(named.arranged(kind: nil, sort: ColumnSort(column: .name)).map(\.title) == ["Img1", "img2", "img10"])
+        precondition(named.arranged(kind: nil, sort: ColumnSort(column: .name, ascending: false)).map(\.title) == ["img10", "img2", "Img1"])
+        var cycle = ColumnSort.next(nil, clicked: .size)
+        precondition(cycle == ColumnSort(column: .size, ascending: true))
+        cycle = ColumnSort.next(cycle, clicked: .size); precondition(cycle == ColumnSort(column: .size, ascending: false))
+        precondition(ColumnSort.next(cycle, clicked: .size) == nil && ColumnSort.next(cycle, clicked: .name) == ColumnSort(column: .name))
+        print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")
     }
 }

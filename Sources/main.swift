@@ -81,6 +81,37 @@ struct DownloadProgress: View {
         }
     }
 }
+/// Fixed widths shared by the header and every row so the columns line up.
+enum Column {
+    static let check: CGFloat = 18, thumb: CGFloat = 52, kind: CGFloat = 50, format: CGFloat = 56, quality: CGFloat = 170, size: CGFloat = 86, state: CGFloat = 62
+}
+struct ColumnHeader: View {
+    @Binding var sort: ColumnSort?
+    @Binding var allSelected: Bool
+    let busy: Bool
+    var body: some View {
+        HStack(spacing: 10) {
+            Toggle("보이는 항목 모두 선택", isOn: $allSelected).labelsHidden().toggleStyle(.checkbox).disabled(busy).frame(width: Column.check)
+            Color.clear.frame(width: Column.thumb, height: 1)
+            title(.name).frame(maxWidth: .infinity, alignment: .leading)
+            title(.kind).frame(width: Column.kind, alignment: .leading)
+            title(.format).frame(width: Column.format, alignment: .leading)
+            title(.quality).frame(width: Column.quality, alignment: .leading)
+            title(.size).frame(width: Column.size, alignment: .trailing)
+            Text("상태").foregroundStyle(.secondary).frame(width: Column.state, alignment: .trailing)
+        }.font(.caption.bold()).padding(.horizontal, 10).padding(.vertical, 5).background(Color.white.opacity(0.05)).clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+    func title(_ column: SortColumn) -> some View {
+        let active = sort?.column == column
+        return Button { sort = ColumnSort.next(sort, clicked: column) } label: {
+            HStack(spacing: 3) {
+                Text(column.rawValue)
+                if active, let sort { Image(systemName: sort.ascending ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .bold)) }
+            }.contentShape(Rectangle())
+        }.buttonStyle(.plain).foregroundStyle(active ? Color.mint : Color.secondary)
+        .help("눌러서 \(column.rawValue) 오름차순 → 내림차순 → 찾은 순서")
+    }
+}
 struct MediaRow: View {
     @Binding var item: MediaItem
     let busy: Bool
@@ -88,29 +119,35 @@ struct MediaRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                Toggle("받기", isOn: $item.selected).labelsHidden().toggleStyle(.checkbox).disabled(busy).accessibilityLabel("\(item.title) 선택")
+                Toggle("받기", isOn: $item.selected).labelsHidden().toggleStyle(.checkbox).disabled(busy).accessibilityLabel("\(item.title) 선택").frame(width: Column.check)
                 Button(action: onPreview) {
-                    Thumbnail(url: item.thumbnail, headers: item.headers, kind: item.kind).frame(width: 52, height: 36).clipShape(RoundedRectangle(cornerRadius: 5))
+                    Thumbnail(url: item.thumbnail, headers: item.headers, kind: item.kind).frame(width: Column.thumb, height: 36).clipShape(RoundedRectangle(cornerRadius: 5))
                 }.buttonStyle(.plain).help("크게 보기").accessibilityLabel("\(item.title) 크게 보기")
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title).font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                    Text([item.subtitle, item.duration != nil ? durationText(item.duration) : "", item.selectedFormat.height > 0 ? item.selectedFormat.resolution : ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                if item.engine == "yt-dlp" {
-                    Picker("저장 품질", selection: Binding(get: { item.formatID }, set: { item.formatID = $0; item.state = "준비됨"; item.progress = [:]; item.output = nil; item.error = "" })) {
-                        ForEach(item.choices) { choice in Text(choice.label).tag(choice.id) }
-                    }.labelsHidden().frame(width: 230).disabled(busy).help("서버가 제공하는 스트림을 재인코딩 없이 저장합니다")
-                }
-                if !item.warning.isEmpty { Image(systemName: "info.circle").foregroundStyle(.secondary).help(item.warning) }
-                Text(item.selectedFormat.ext.uppercased()).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(Color.mint.opacity(0.13)).clipShape(Capsule())
-                Text(item.selectedFormat.sizeLabel).font(.caption.bold()).monospacedDigit().frame(width: 92, alignment: .trailing)
-                Text(item.state).font(.caption2.bold()).foregroundStyle(item.state == "완료" ? .mint : item.state == "실패" ? .orange : .secondary).frame(width: 64, alignment: .trailing)
+                    HStack(spacing: 4) {
+                        Text(item.title).font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        if !item.warning.isEmpty { Image(systemName: "info.circle").font(.caption).foregroundStyle(.secondary).help(item.warning) }
+                    }
+                    Text([item.subtitle, item.duration != nil ? durationText(item.duration) : ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Text(item.kind.rawValue).font(.caption).foregroundStyle(.secondary).frame(width: Column.kind, alignment: .leading)
+                Text(item.selectedFormat.ext.uppercased()).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(Color.mint.opacity(0.13)).clipShape(Capsule()).frame(width: Column.format, alignment: .leading)
+                Group {
+                    if item.engine == "yt-dlp" {
+                        Picker("저장 품질", selection: Binding(get: { item.formatID }, set: { item.formatID = $0; item.state = "준비됨"; item.progress = [:]; item.output = nil; item.error = "" })) {
+                            ForEach(item.choices) { choice in Text(choice.label).tag(choice.id) }
+                        }.labelsHidden().disabled(busy).help("서버가 제공하는 스트림을 재인코딩 없이 저장합니다")
+                    } else {
+                        Text(item.selectedFormat.height > 0 ? item.selectedFormat.resolution : "—").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }.frame(width: Column.quality, alignment: .leading)
+                Text(item.selectedFormat.sizeLabel).font(.caption.bold()).monospacedDigit().lineLimit(1).frame(width: Column.size, alignment: .trailing)
+                Text(item.state).font(.caption2.bold()).foregroundStyle(item.state == "완료" ? .mint : item.state == "실패" ? .orange : .secondary).lineLimit(1).frame(width: Column.state, alignment: .trailing)
             }
             if !item.error.isEmpty { Text(item.error).font(.caption).foregroundStyle(.orange).lineLimit(4).textSelection(.enabled) }
             DownloadProgress(item: item)
             if let output = item.output { HStack { Label("저장 완료", systemImage: "checkmark.circle.fill").foregroundStyle(.mint); Spacer(); Button("Finder에서 보기") { NSWorkspace.shared.activateFileViewerSelecting([output]) } }.font(.caption) }
-        }.padding(.horizontal, 10).padding(.vertical, 6).background(item.selected ? Color.mint.opacity(0.07) : Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 8))
+        }.padding(.horizontal, 10).padding(.vertical, 5).background(item.selected ? Color.mint.opacity(0.07) : Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 struct SettingsView: View {
@@ -139,9 +176,9 @@ struct ContentView: View {
     @ObservedObject var updates: AppUpdater
     @State var showLog = false
     @State var kindFilter: MediaKind?
-    @State var order: SizeOrder = .found
+    @State var sort: ColumnSort?
     @State var previewing: MediaItem?
-    var shown: [MediaItem] { m.items.arranged(kind: kindFilter, order: order) }
+    var shown: [MediaItem] { m.items.arranged(kind: kindFilter, sort: sort) }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 20) {
@@ -198,11 +235,15 @@ struct ContentView: View {
                             }
                         }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 360)
                         Spacer()
-                        Picker("정렬", selection: $order) { ForEach(SizeOrder.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(width: 130)
+                        Text("열 이름을 눌러 정렬").font(.caption2).foregroundStyle(.tertiary)
                     }
+                    ColumnHeader(sort: $sort, allSelected: Binding(
+                        get: { !shown.isEmpty && shown.allSatisfy(\.selected) },
+                        set: { value in let ids = Set(shown.map(\.id)); for i in m.items.indices where ids.contains(m.items[i].id) { m.items[i].selected = value } }
+                    ), busy: m.busy)
                 }
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
+                    LazyVStack(alignment: .leading, spacing: 3) {
                         if m.items.isEmpty && !m.busy {
                             VStack(spacing: 12) { Image(systemName: "rectangle.stack.badge.play").font(.system(size: 44)).foregroundStyle(.mint.opacity(0.6)); Text("다운로드 전에 이름·화질·용량을 확인하세요").font(.headline); Text("분석하기 → 이미지·동영상 확인 → 선택 또는 전체 다운로드").font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 55)
                         }
