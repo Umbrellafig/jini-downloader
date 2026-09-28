@@ -146,14 +146,14 @@ import UserNotifications
                         appendResults([try await inspectDirect(url)])
                     } else {
                         // The page scan, yt-dlp and gallery-dl are independent, so they run at the same time.
-                        async let video = attempt("동영상") { [try await self.inspectVideo(value)] }
+                        async let video = attempt("동영상") { try await self.inspectVideo(value) }
                         async let gallery = attempt("사진 게시물") { try await self.inspectGallery(value) }
                         let browser = WebImages()
                         appendResults(await attempt("웹페이지") { try await browser.inspect(url) })
                         try Task.checkCancellation()
                         status = "\(items.count)개 찾음 · 동영상 품질과 사진 게시물 확인 중"
                         let embeds = await withTaskGroup(of: [MediaItem].self) { group in
-                            for embed in browser.embeds { group.addTask { await self.attempt("삽입된 동영상") { [try await self.inspectVideo(embed)] } } }
+                            for embed in browser.embeds { group.addTask { await self.attempt("삽입된 동영상") { try await self.inspectVideo(embed) } } }
                             var found: [MediaItem] = []
                             for await result in group { found += result }
                             return found
@@ -207,7 +207,10 @@ import UserNotifications
     }
     private func startInstant() {
         let picks = Set(items.instantPicks)
-        guard !picks.isEmpty else { status = "\(items.count)개 파일 · 바로 받을 동영상이나 게시물이 없어요. 받을 파일을 골라 주세요"; return }
+        guard !picks.isEmpty else {
+            status = items.contains(where: \.playlistEntry) ? "재생목록 영상 \(items.filter(\.playlistEntry).count)개 · 받을 영상을 골라 주세요" : "\(items.count)개 파일 · 바로 받을 동영상이나 게시물이 없어요. 받을 파일을 골라 주세요"
+            return
+        }
         for i in items.indices where !items[i].inDownloads { items[i].selected = picks.contains(items[i].id) }
         start()
     }
@@ -236,12 +239,17 @@ import UserNotifications
     private var videoBase: [String] {
         ["--ignore-config", "--no-plugin-dirs", "--no-playlist", "--no-colors", "--socket-timeout", "25", "--retries", "2", "--ffmpeg-location", bin.path, "--js-runtimes", "deno:" + bin.appendingPathComponent("deno").path]
     }
-    private func inspectVideo(_ value: String) async throws -> MediaItem {
-        let r = try await execute("yt-dlp", videoBase + ["--skip-download", "--dump-single-json", "-f", "bv*+ba/b", "--", value], metadata: true)
+    /// One video with its formats, or the videos of a playlist link (listed without per-video analysis).
+    private func inspectVideo(_ value: String) async throws -> [MediaItem] {
+        let r = try await execute("yt-dlp", videoBase + ["--skip-download", "--flat-playlist", "-I", "1:200", "--dump-single-json", "-f", "bv*+ba/b", "--", value], metadata: true)
+        if let entries = try Metadata.playlist(r.output, source: value) {
+            guard !entries.isEmpty else { throw failure("재생목록에서 받을 수 있는 영상을 찾지 못했습니다.") }
+            return entries
+        }
         var item = try Metadata.video(r.output, source: value)
         if item.choices.count == 1 && item.selectedFormat.size == nil, let u = webURL(value), !u.pathExtension.isEmpty, let direct = try? await inspectDirect(u) { item.choices[0].size = direct.selectedFormat.size }
         if r.errors.contains("WARNING:") { item.warning = r.errors.components(separatedBy: .newlines).filter { $0.contains("WARNING:") }.joined(separator: "\n") }
-        return item
+        return [item]
     }
     private func inspectGallery(_ value: String) async throws -> [MediaItem] {
         let r = try await execute("gallery-dl", ["--config-ignore", "--no-input", "--http-timeout", "25", "--retries", "2", "--range", "1-200", "--resolve-json", "--", value], metadata: true)

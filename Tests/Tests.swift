@@ -25,6 +25,16 @@ import Foundation
         precondition(webURL("file:///etc/passwd") == nil)
         precondition(webURL("https://user:pass@example.com") == nil)
         precondition(safeName("../../photo.jpg") == "photo.jpg")
+        let list: [String: Any] = ["_type": "playlist", "title": "목록", "entries": [
+            ["url": "https://www.youtube.com/watch?v=a", "title": "첫 영상", "duration": 60, "channel": "채널", "thumbnails": [["url": "https://i.ytimg.com/a.jpg"]]],
+            ["url": "file:///etc/passwd", "title": "나쁜 항목"], ["title": "주소 없음"]]]
+        let entries = try Metadata.playlist(JSONSerialization.data(withJSONObject: list), source: "https://www.youtube.com/playlist?list=x")!
+        precondition(entries.count == 1 && entries[0].playlistEntry && !entries[0].selected && entries[0].engine == "yt-dlp")
+        precondition(entries[0].subtitle == "채널 · 목록" && entries[0].duration == 60 && entries[0].thumbnail == "https://i.ytimg.com/a.jpg")
+        precondition(entries[0].selectedFormat.automatic && entries[0].selectedFormat.id == "bv*+ba/b" && entries[0].choices.contains { $0.audioFormat == "mp3" })
+        let single = try Metadata.playlist(JSONSerialization.data(withJSONObject: d), source: "https://example.com")
+        precondition(single == nil)
+        precondition(entries.instantPicks.isEmpty, "Instant download must not take a whole playlist")
         var live = d; live["is_live"] = true
         do { _ = try Metadata.video(JSONSerialization.data(withJSONObject:live),source:"https://example.com"); fatalError("Live media must be rejected") } catch {}
         func file(_ name: String, _ ext: String, _ size: Double?, video: Bool = false) -> MediaItem {

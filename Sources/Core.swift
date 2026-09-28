@@ -48,13 +48,15 @@ struct FormatChoice: Identifiable {
     var approximate = false
     var streamIDs: [String] = []
     var recommended = false
+    /// A playlist entry's "best available" choice; the actual format is decided by yt-dlp when downloading.
+    var automatic = false
     /// Set for audio-only choices ("m4a" or "mp3"): yt-dlp extracts the best audio stream into this format.
     var audioFormat: String?
     var resolution: String { height > 0 ? "\(width)×\(height)" : "해상도 정보 없음" }
     var quality: String { height > 0 ? "\(height)p" + (fps > 0 ? " · \(Int(fps))fps" : "") : "해상도 정보 없음" }
     var sizeLabel: String { (approximate && size != nil ? "약 " : "") + bytes(size) }
     /// Quality menu text; the saved file type has its own column, so it is left out here.
-    var label: String { audioFormat.map { "음성만 · \($0.uppercased()) · \(sizeLabel)" } ?? "\(recommended ? "최고 품질 · " : "")\(quality) · \(videoCodec) · \(sizeLabel)" }
+    var label: String { automatic ? "가장 좋은 품질 · 받을 때 결정" : audioFormat.map { "음성만 · \($0.uppercased()) · \(sizeLabel)" } ?? "\(recommended ? "최고 품질 · " : "")\(quality) · \(videoCodec) · \(sizeLabel)" }
     var detail: String { [resolution, fps > 0 ? "\(Int(fps)) fps" : "", videoCodec, audioCodec, dynamicRange].filter { !$0.isEmpty && $0 != "none" && $0 != "NA" }.joined(separator: " · ") }
 }
 enum MediaKind: String, CaseIterable, Identifiable {
@@ -117,6 +119,8 @@ struct MediaItem: Identifiable {
     var kindHint: MediaKind?
     /// The main content of the link: media of an opened post or a photo gallery, as opposed to page decoration.
     var featured = false
+    /// A video listed from a playlist, shown for picking rather than downloaded all at once.
+    var playlistEntry = false
     /// Position in the download section; set when a download run queues the item.
     var queue: Int?
     var selectedFormat: FormatChoice { choices.first { $0.id == formatID } ?? choices[0] }
@@ -147,7 +151,7 @@ extension Array where Element == MediaItem {
     /// What instant download takes: every video if any were found, otherwise the featured media; nothing for a plain page.
     var instantPicks: [MediaItem.ID] {
         let ready = filter { !$0.inDownloads }
-        let videos = ready.filter { $0.kind == .video }
+        let videos = ready.filter { $0.kind == .video && !$0.playlistEntry }
         return (videos.isEmpty ? ready.filter(\.featured) : videos).map(\.id)
     }
     /// Items of one kind (nil: all), sorted by a column (nil: found order). Ties keep the found order.
@@ -235,6 +239,20 @@ enum Metadata {
             }
         }
         return MediaItem(source: source, url: source, title: d["title"] as? String ?? source, subtitle: d["uploader"] as? String ?? URL(string: source)?.host ?? "", thumbnail: d["thumbnail"] as? String, duration: number(d, "duration"), choices: choices, formatID: best.id, engine: "yt-dlp")
+    }
+    /// Videos of a playlist (from yt-dlp --flat-playlist), up to 200; nil when the JSON is a single video.
+    static func playlist(_ data: Data, source: String) throws -> [MediaItem]? {
+        guard let d = try JSONSerialization.jsonObject(with: data) as? [String: Any], d["_type"] as? String == "playlist" else { return nil }
+        let name = d["title"] as? String ?? ""
+        return (d["entries"] as? [[String: Any]] ?? []).prefix(200).compactMap { e in
+            guard let url = (e["url"] as? String) ?? (e["webpage_url"] as? String), webURL(url) != nil else { return nil }
+            let best = FormatChoice(id: "bv*+ba/b", ext: "mkv", streamIDs: [], recommended: true, automatic: true)
+            let audio = ["m4a", "mp3"].map { FormatChoice(id: "audio-" + $0, ext: $0, audioCodec: $0 == "mp3" ? "mp3" : "aac", streamIDs: [], audioFormat: $0) }
+            let thumbnail = (e["thumbnails"] as? [[String: Any]])?.last?["url"] as? String
+            var item = MediaItem(source: source, url: url, title: e["title"] as? String ?? url, subtitle: [e["channel"] as? String ?? e["uploader"] as? String ?? "", name].filter { !$0.isEmpty }.joined(separator: " · "), thumbnail: thumbnail.flatMap { webURL($0) != nil ? $0 : nil }, duration: number(e, "duration"), choices: [best] + audio, formatID: best.id, engine: "yt-dlp")
+            item.selected = false; item.playlistEntry = true
+            return item
+        }
     }
     static func gallery(_ data: Data, source: String) throws -> [MediaItem] {
         guard let messages = try JSONSerialization.jsonObject(with: data) as? [[Any]] else { throw failure("갤러리 정보를 읽지 못했습니다.") }
