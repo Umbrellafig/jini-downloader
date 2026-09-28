@@ -38,6 +38,8 @@ import AppKit
         enginesReady = installer?.ready ?? false
         if let path = UserDefaults.standard.string(forKey: "saveFolder") { folder = URL(fileURLWithPath: path) }
         else { folder = Self.defaultFolder }
+        // A new tool revision after an app update: the user already agreed to the tools, so upgrade in place.
+        if !enginesReady, installer?.hasPreviousInstall == true { installEngines() }
     }
     static var defaultFolder: URL { FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0] }
     var usesDefaultFolder: Bool { folder.standardizedFileURL == Self.defaultFolder.standardizedFileURL }
@@ -92,18 +94,22 @@ import AppKit
                     if directExtensions.contains(url.pathExtension.lowercased()) {
                         appendResults([try await inspectDirect(url)])
                     } else {
+                        // The page scan, yt-dlp and gallery-dl are independent, so they run at the same time.
+                        async let video = attempt("동영상") { [try await self.inspectVideo(value)] }
+                        async let gallery = attempt("사진 게시물") { try await self.inspectGallery(value) }
                         let browser = WebImages()
-                        appendResults(try await browser.inspect(url))
+                        appendResults(await attempt("웹페이지") { try await browser.inspect(url) })
                         try Task.checkCancellation()
                         status = "\(items.count)개 찾음 · 동영상 품질과 사진 게시물 확인 중"
-                        do { appendResults([try await inspectVideo(value)]) }
-                        catch { try Task.checkCancellation(); note("동영상: \(error.localizedDescription)") }
-                        for embed in browser.embeds {
-                            do { appendResults([try await inspectVideo(embed)]) }
-                            catch { try Task.checkCancellation(); note("삽입된 동영상: \(error.localizedDescription)") }
+                        let embeds = await withTaskGroup(of: [MediaItem].self) { group in
+                            for embed in browser.embeds { group.addTask { await self.attempt("삽입된 동영상") { [try await self.inspectVideo(embed)] } } }
+                            var found: [MediaItem] = []
+                            for await result in group { found += result }
+                            return found
                         }
-                        do { appendResults(try await inspectGallery(value)) }
-                        catch { try Task.checkCancellation(); note("사진 게시물: \(error.localizedDescription)") }
+                        appendResults(await video)
+                        appendResults(embeds)
+                        appendResults(await gallery)
                     }
                     try Task.checkCancellation()
                     if items.count == before {
@@ -113,19 +119,30 @@ import AppKit
                     if !Task.isCancelled { previewErrors.append("\(value)\n\(error.localizedDescription)") }
                 }
             }
+            // Name and size checks are small HEAD requests; run up to eight at once within the time limit.
             let deadline = Date().addingTimeInterval(12)
-            for i in items.indices where items[i].engine == "direct" {
-                if Task.isCancelled || Date() > deadline { break }
-                status = "\(items.count)개 찾음 · 파일 이름과 용량 확인 중"
-                if let url = webURL(items[i].url), let info = try? await inspectDirect(url, headers: items[i].headers, timeout: 2) {
-                    items[i].choices[0].size = info.selectedFormat.size
-                    if info.selectedFormat.ext != "?" { items[i].choices[0].ext = info.selectedFormat.ext }
-                    items[i].title = info.title
+            var pending = items.filter { $0.engine == "direct" }.compactMap { item in webURL(item.url).map { (item.id, $0, item.headers) } }[...]
+            if !pending.isEmpty && !Task.isCancelled { status = "\(items.count)개 찾음 · 파일 이름과 용량 확인 중" }
+            await withTaskGroup(of: (UUID, MediaItem?).self) { group in
+                func probe(_ job: (UUID, URL, [String: String])) { group.addTask { (job.0, try? await self.inspectDirect(job.1, headers: job.2, timeout: 2)) } }
+                for _ in 0..<8 { if let job = pending.popFirst() { probe(job) } }
+                for await (id, info) in group {
+                    if let info, let i = items.firstIndex(where: { $0.id == id }) {
+                        items[i].choices[0].size = info.selectedFormat.size
+                        if info.selectedFormat.ext != "?" { items[i].choices[0].ext = info.selectedFormat.ext }
+                        items[i].title = info.title
+                    }
+                    if !Task.isCancelled, Date() < deadline, let job = pending.popFirst() { probe(job) }
                 }
             }
             snapshot = sig
             status = cancelled ? "분석 중단 · 찾은 파일은 선택해서 받을 수 있습니다" : "\(items.count)개 파일 · 원하는 항목을 선택하거나 전체 다운로드하세요"
         }
+    }
+    /// Runs one finder; a failure goes to the log so the other finders' results still count.
+    private func attempt(_ label: String, _ work: () async throws -> [MediaItem]) async -> [MediaItem] {
+        do { return try await work() }
+        catch { if !Task.isCancelled { note("\(label): \(error.localizedDescription)") }; return [] }
     }
     private func execute(_ name: String, _ args: [String], id: UUID? = nil, metadata: Bool = false) async throws -> EngineResult {
         try Task.checkCancellation()

@@ -4,7 +4,7 @@ Jini Downloader의 앱 ZIP에는 외부 다운로드 엔진·미디어 라이브
 
 | 도구 | 용도 | 설치 버전 | 배포처 / 소스 / 라이선스 |
 | --- | --- | --- | --- |
-| yt-dlp | 동영상 분석·다운로드 | 2026.08.19 | [프로젝트](https://github.com/yt-dlp/yt-dlp), [라이선스 안내](https://github.com/yt-dlp/yt-dlp#licensing) |
+| yt-dlp | 동영상 분석·다운로드 | 2026.08.19 (macOS 폴더형 빌드) | [프로젝트](https://github.com/yt-dlp/yt-dlp), [라이선스 안내](https://github.com/yt-dlp/yt-dlp#licensing) |
 | gallery-dl | 갤러리 메타데이터 추출 | 2026.09.09 배포 빌드 | [소스](https://github.com/mikf/gallery-dl), [빌드 배포](https://github.com/gdl-org/builds), [GPL 라이선스](https://github.com/mikf/gallery-dl/blob/master/LICENSE) |
 | Deno | yt-dlp의 JavaScript 처리 | 2.9.6 | [프로젝트](https://github.com/denoland/deno), [라이선스](https://github.com/denoland/deno/blob/main/LICENSE.md) |
 | FFmpeg | 영상·음성 병합 | 9.0.1, macOS arm64 | [소스·라이선스](https://ffmpeg.org/legal.html), [Martin Riedl 배포처](https://ffmpeg.martin-riedl.de/) |
@@ -17,6 +17,10 @@ yt-dlp 소스의 Unlicense와 PyInstaller 실행 파일의 라이선스는 같�
 Jini Downloader는 별도 프로세스를 실행하는 방식으로 이 도구를 사용합니다. 앱 소스에 붙인 MIT 라이선스가 외부 도구의 라이선스를 변경하지 않습니다. 설치된 엔진을 다시 묶어 배포하려면 해당 실행 파일과 종속 라이브러리의 라이선스, 저작권 고지, 대응 소스 제공 조건 등을 별도로 충족해야 합니다.
 
 ## 무결성과 설치
+
+yt-dlp는 한 파일로 된 `yt-dlp_macos` 대신 폴더형 `yt-dlp_macos.zip`을 설치합니다. 한 파일 빌드는 실행할 때마다 스스로 압축을 풀어 매번 약 5초가 걸리지만, 폴더형은 약 0.2초에 시작합니다. 폴더는 `lib/yt-dlp`에 두고 `bin/yt-dlp`에서 연결합니다.
+
+엔진 목록의 revision이 바뀌면 앱이 시작할 때 새 목록으로 자동 갱신합니다. 체크섬이 같은 도구는 이전 설치본을 복사하고 바뀐 도구만 내려받은 뒤, 이전 revision 폴더를 지웁니다.
 
 1. 고정된 HTTPS URL에서 설치 파일을 내려받습니다.
 2. 파일 전체의 SHA-256을 앱에 포함된 값과 비교합니다.

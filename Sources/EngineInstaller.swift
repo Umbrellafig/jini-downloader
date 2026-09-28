@@ -9,7 +9,9 @@ struct EngineManifest: Codable {
         return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
     }
 }
-struct EngineSpec: Codable { var name: String; var version: String; var url: String; var sha256: String; var archive: String; var executable: String; var bytes: Int64 }
+/// archive: "raw" (the file itself), "zip" (one executable inside), or "zipdir" (a folder app; `entry` is its
+/// executable, linked from bin). Folder builds start fast because they do not unpack themselves on every run.
+struct EngineSpec: Codable { var name: String; var version: String; var url: String; var sha256: String; var archive: String; var executable: String; var bytes: Int64; var entry: String? = nil }
 final class EngineInstaller: @unchecked Sendable {
     let manifest: EngineManifest
     let root: URL
@@ -17,7 +19,31 @@ final class EngineInstaller: @unchecked Sendable {
         self.manifest = manifest
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("JiniDownloader/Engines", isDirectory: true)
     }
-    var directory: URL { root.appendingPathComponent(manifest.revision, isDirectory: true) }
+    var directory: URL { directory(manifest.revision) }
+    func directory(_ revision: String) -> URL { root.appendingPathComponent(revision, isDirectory: true) }
+    /// Completed installs of other revisions; an app update that changes one tool reuses the rest from here.
+    func previousInstalls() -> [EngineManifest] {
+        let dirs = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        return dirs.filter { !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != manifest.revision }.compactMap { dir in
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent("installed.json")), let m = try? JSONDecoder().decode(EngineManifest.self, from: data), m.revision == dir.lastPathComponent else { return nil }
+            return m
+        }
+    }
+    var hasPreviousInstall: Bool { !previousInstalls().isEmpty }
+    private func copyInstalled(_ tool: EngineSpec, from old: URL, to stage: URL) throws {
+        let fm = FileManager.default
+        let target = stage.appendingPathComponent("bin").appendingPathComponent(tool.executable)
+        if tool.archive == "zipdir", let entry = tool.entry {
+            let folder = stage.appendingPathComponent("lib").appendingPathComponent(tool.name)
+            try fm.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.copyItem(at: old.appendingPathComponent("lib").appendingPathComponent(tool.name), to: folder)
+            try fm.createSymbolicLink(atPath: target.path, withDestinationPath: "../lib/\(tool.name)/\(entry)")
+        } else {
+            let source = old.appendingPathComponent("bin").appendingPathComponent(tool.executable)
+            guard try Self.digest(source) == tool.sha256 || tool.archive != "raw" else { throw failure("기존 \(tool.name) 파일이 변경되었습니다.") }
+            try fm.copyItem(at: source, to: target)
+        }
+    }
     var bin: URL { directory.appendingPathComponent("bin", isDirectory: true) }
     var ready: Bool {
         let marker = directory.appendingPathComponent("installed.json")
@@ -35,10 +61,17 @@ final class EngineInstaller: @unchecked Sendable {
         let stage = root.appendingPathComponent(".install-" + UUID().uuidString, isDirectory:true)
         try fm.createDirectory(at: stage.appendingPathComponent("bin"), withIntermediateDirectories:true)
         defer { try? fm.removeItem(at: stage) }
+        let previous = previousInstalls()
         for (index, tool) in manifest.tools.enumerated() {
             try Task.checkCancellation()
-            guard let url = webURL(tool.url), url.scheme == "https", tool.sha256.count == 64 else { throw failure("유효하지 않은 엔진 설치 정보입니다.") }
             let fraction = Double(index) / Double(manifest.tools.count)
+            // Reuse a tool an earlier revision already verified with the same checksum instead of downloading it again.
+            if let old = previous.first(where: { $0.tools.contains { $0.name == tool.name && $0.sha256 == tool.sha256 && $0.archive == tool.archive } }),
+               (try? copyInstalled(tool, from: directory(old.revision), to: stage)) != nil {
+                update("\(index+1)/\(manifest.tools.count) · \(tool.name) 기존 설치본 사용", fraction)
+                continue
+            }
+            guard let url = webURL(tool.url), url.scheme == "https", tool.sha256.count == 64 else { throw failure("유효하지 않은 엔진 설치 정보입니다.") }
             update("\(index+1)/\(manifest.tools.count) · \(tool.name) 다운로드 (\(bytes(Double(tool.bytes))))", fraction)
             var request = URLRequest(url: url); request.timeoutInterval = 90
             let (temp, response) = try await URLSession.shared.download(for: request)
@@ -49,7 +82,15 @@ final class EngineInstaller: @unchecked Sendable {
             let digest = try await Task.detached { try Self.digest(temp) }.value
             guard digest == tool.sha256 else { throw failure("\(tool.name)의 체크섬이 일치하지 않습니다. 실행하지 않고 설치를 중단했습니다.") }
             let target = stage.appendingPathComponent("bin").appendingPathComponent(tool.executable)
-            if tool.archive == "zip" {
+            if tool.archive == "zipdir", let entry = tool.entry, !entry.contains("/") {
+                let folder = stage.appendingPathComponent("lib").appendingPathComponent(tool.name)
+                try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+                let r = try await EngineRunner().run(URL(fileURLWithPath:"/usr/bin/ditto"), ["-x","-k",temp.path,folder.path])
+                guard r.code == 0 else { throw failure("\(tool.name) 압축 해제 실패: \(r.errors)") }
+                try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.appendingPathComponent(entry).path)
+                try fm.createSymbolicLink(atPath: target.path, withDestinationPath: "../lib/\(tool.name)/\(entry)")
+                continue
+            } else if tool.archive == "zip" {
                 let unpack = stage.appendingPathComponent("unpack-" + tool.name)
                 try fm.createDirectory(at: unpack, withIntermediateDirectories: true)
                 let r = try await EngineRunner().run(URL(fileURLWithPath:"/usr/bin/ditto"), ["-x","-k",temp.path,unpack.path])
@@ -70,6 +111,7 @@ final class EngineInstaller: @unchecked Sendable {
         try Task.checkCancellation()
         if fm.fileExists(atPath: directory.path) { try fm.removeItem(at: directory) }
         try fm.moveItem(at: stage, to: directory)
+        for old in previous where old.revision != manifest.revision { try? fm.removeItem(at: self.directory(old.revision)) }
         update("필수 도구 설치 완료", 1)
     }
 }

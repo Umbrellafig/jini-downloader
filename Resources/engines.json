@@ -1,14 +1,15 @@
 {
-  "revision": "2026-09-10-arm64-1",
+  "revision": "2026-09-28-arm64-1",
   "tools": [
     {
       "name": "yt-dlp",
       "version": "2026.08.19",
-      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos",
-      "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202",
-      "archive": "raw",
+      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos.zip",
+      "sha256": "07e54b0865303c864006925913bce2604f8ee8cc6f18699bac9c309f9328a6d8",
+      "archive": "zipdir",
       "executable": "yt-dlp",
-      "bytes": 37146048
+      "entry": "yt-dlp_macos",
+      "bytes": 53923637
     },
     {
       "name": "gallery-dl",
