@@ -79,6 +79,19 @@ import AppKit
             clipboardOffer = !webLinks(in: pasteboard.string(forType: .string) ?? "").isEmpty
         }
     }
+    /// Links from a drop, the URL scheme or the Services menu. They are analyzed right away, or added to the input while busy.
+    func receive(links: [String]) {
+        guard !links.isEmpty else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        if busy {
+            let existing = input.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+            input = (existing.filter { !$0.isEmpty } + links.filter { !existing.contains($0) }).joined(separator: "\n")
+            status = "링크를 추가했습니다 · 지금 작업이 끝나면 분석하기를 눌러 주세요"
+        } else {
+            input = links.joined(separator: "\n")
+            if enginesReady { analyze() }
+        }
+    }
     func acceptClipboard() {
         clipboardOffer = false
         paste()

@@ -14,6 +14,27 @@ func webLinks(in text: String) -> [String] {
     var seen = Set<String>()
     return matches.compactMap { $0.url?.absoluteString }.filter { webURL($0) != nil && seen.insert($0).inserted }
 }
+/// Links handed to the app from outside: a jinidownloader:// request (`?url=` values, or a link after the scheme),
+/// a web link dropped on the Dock icon, or a .webloc/.url shortcut file.
+func externalLinks(_ url: URL) -> [String] {
+    switch url.scheme?.lowercased() {
+    case "jinidownloader":
+        let values = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.filter { $0.name == "url" }.compactMap(\.value) ?? []
+        if !values.isEmpty { return values.filter { webURL($0) != nil } }
+        let rest = url.absoluteString.dropFirst("jinidownloader:".count).drop { $0 == "/" }
+        return webLinks(in: String(rest).removingPercentEncoding ?? String(rest))
+    case "http", "https":
+        return webURL(url.absoluteString) != nil ? [url.absoluteString] : []
+    case "file":
+        guard let data = try? Data(contentsOf: url, options: .alwaysMapped), data.count < 1_000_000 else { return [] }
+        if let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any], let link = plist["URL"] as? String {
+            return webURL(link) != nil ? [link] : []
+        }
+        return webLinks(in: String(decoding: data, as: UTF8.self))
+    default:
+        return []
+    }
+}
 struct FormatChoice: Identifiable {
     var id: String
     var ext: String

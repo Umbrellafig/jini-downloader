@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import ImageIO
 import AVKit
+import UniformTypeIdentifiers
 
 struct Thumbnail: View {
     let url: String?
@@ -195,6 +196,7 @@ struct ContentView: View {
     @State var kindFilter: MediaKind?
     @State var sort: ColumnSort?
     @State var previewing: MediaItem?
+    @State var dropping = false
     var found: [MediaItem] { m.items.filter { !$0.inDownloads } }
     var shown: [MediaItem] { found.arranged(kind: kindFilter, sort: sort) }
     var downloads: [MediaItem] { m.items.filter(\.inDownloads).sorted { ($0.queue ?? .max) < ($1.queue ?? .max) } }
@@ -321,6 +323,18 @@ struct ContentView: View {
                 Text("용량은 서버 정보 기준이며 ‘약’은 추정값입니다. 병합 후 크기는 달라질 수 있습니다.").font(.caption2).foregroundStyle(.secondary)
             }.padding(24).frame(minWidth: 690).disabled(updates.sessionActive)
         }.frame(minWidth: 1000, minHeight: 770).preferredColorScheme(.dark)
+        .onDrop(of: [.url, .fileURL, .plainText], isTargeted: $dropping) { providers in
+            dropped(providers) { m.receive(links: $0) }; return true
+        }
+        .overlay {
+            if dropping {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.55))
+                    RoundedRectangle(cornerRadius: 16).stroke(Color.mint, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
+                    Label("놓으면 링크를 분석합니다", systemImage: "arrow.down.doc").font(.title2.bold()).foregroundStyle(.mint)
+                }.padding(12).allowsHitTesting(false)
+            }
+        }
         .sheet(item: $previewing) { PreviewSheet(item: $0) }
         .onAppear { Installation.checkOnce(); Task { await m.checkClipboard() } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await m.checkClipboard() } }
@@ -329,16 +343,53 @@ struct ContentView: View {
     }
 
 }
+/// Receives links from outside the window: web links or shortcut files dropped on the Dock icon, jinidownloader:// requests,
+/// and the "지니 다운로더로 분석" Services menu item. Links that arrive before the model connects are kept until it does.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static var handler: (([String]) -> Void)?
+    private static var pending: [String] = []
+    static func connect(_ handle: @escaping ([String]) -> Void) { handler = handle; if !pending.isEmpty { handle(pending); pending = [] } }
+    static func deliver(_ links: [String]) {
+        var seen = Set<String>(); let links = links.filter { seen.insert($0).inserted }
+        guard !links.isEmpty else { return }
+        if let handler { handler(links) } else { pending += links }
+    }
+    func applicationDidFinishLaunching(_ notification: Notification) { NSApp.servicesProvider = self; NSUpdateDynamicServices() }
+    func application(_ application: NSApplication, open urls: [URL]) { Self.deliver(urls.flatMap(externalLinks)) }
+    @objc func analyzeLinks(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString>) {
+        let urls = (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []).map(\.absoluteString).filter { webURL($0) != nil }
+        Self.deliver(urls + webLinks(in: pasteboard.string(forType: .string) ?? ""))
+    }
+}
+/// Collects links from items dropped on the window: web links, shortcut files, or text containing links.
+func dropped(_ providers: [NSItemProvider], then deliver: @escaping @MainActor ([String]) -> Void) {
+    let group = DispatchGroup(), lock = NSLock()
+    var links: [String] = []
+    func add(_ found: [String]) { lock.lock(); links += found; lock.unlock() }
+    for provider in providers {
+        group.enter()
+        if provider.canLoadObject(ofClass: URL.self) {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in add(url.map(externalLinks) ?? []); group.leave() }
+        } else {
+            _ = provider.loadObject(ofClass: String.self) { text, _ in add(webLinks(in: text ?? "")); group.leave() }
+        }
+    }
+    group.notify(queue: .main) { MainActor.assumeIsolated { deliver(links) } }
+}
 @main struct JiniDownloaderApp: App {
     @StateObject private var model: Model
     @StateObject private var updates: AppUpdater
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     init() {
         let model = Model()
+        AppDelegate.connect { model.receive(links: $0) }
         _model = StateObject(wrappedValue: model)
         _updates = StateObject(wrappedValue: AppUpdater(isBusy: { model.busy }))
     }
     var body: some Scene {
+        // Links from the Dock, the URL scheme or Services go to AppDelegate and the existing window, never a new one.
         WindowGroup { ContentView(m: model, updates: updates) }
+            .handlesExternalEvents(matching: [])
             .windowStyle(.hiddenTitleBar)
             .commands {
                 CommandGroup(replacing: .newItem) {}
