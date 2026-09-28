@@ -300,7 +300,7 @@ import UserNotifications
                     defer { try? FileManager.default.removeItem(at: stage) }
                     let saved: URL
                     if item.engine == "yt-dlp" {
-                        _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate", "--merge-output-format", "mkv", "-f", item.formatID, "-P", stage.path, "-o", "%(title).150B [%(id)s].%(ext)s", "--", item.url], id: id)
+                        _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate"] + selection(item.selectedFormat) + ["-P", stage.path, "-o", "%(title).150B [%(id)s].%(ext)s", "--", item.url], id: id)
                         items[i].state = "저장 확인 중"
                         let files = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).filter { !["part","ytdl","json"].contains($0.pathExtension) && !$0.lastPathComponent.hasPrefix(".") }
                         guard files.count == 1 else { throw failure("완성 파일을 확인하지 못했습니다. \(files.count)개 결과가 있습니다.") }
@@ -314,7 +314,8 @@ import UserNotifications
                             }
                             note("확인: \(Int(number(v,"width") ?? 0))×\(height) · \(v["codec_name"] as? String ?? "") · \(v["r_frame_rate"] as? String ?? "") fps")
                         }
-                        saved = try moveUnique(try await finishVideo(files[0], streams: streams, in: stage, id: id), to: dest)
+                        let finished = item.selectedFormat.audioFormat == nil ? try await finishVideo(files[0], streams: streams, in: stage, id: id) : files[0]
+                        saved = try moveUnique(finished, to: dest)
                     } else {
                         let t = FileTransfer(); transfer = t
                         t.progress = { [weak self] p in Task { @MainActor [weak self] in self?.update(p, id: id) } }
@@ -344,6 +345,11 @@ import UserNotifications
             if !cancelled { notifyFinished(saved: saved, failed: failed) }
         }
     }
+    /// yt-dlp format arguments: merged video+audio into MKV, or the best audio extracted into M4A/MP3.
+    private func selection(_ format: FormatChoice) -> [String] {
+        guard let audio = format.audioFormat else { return ["--merge-output-format", "mkv", "-f", format.id] }
+        return ["-f", audio == "m4a" ? "ba[ext=m4a]/ba" : "ba", "-x", "--audio-format", audio, "--audio-quality", "0"]
+    }
     private func probeStreams(_ file: URL) async throws -> [[String: Any]] {
         let probe = try await execute("ffprobe", ["-v","error","-show_entries","stream=codec_type,codec_name,width,height,r_frame_rate","-of","json",file.path], metadata: true)
         return (try JSONSerialization.jsonObject(with: probe.output) as? [String: Any])?["streams"] as? [[String: Any]] ?? []
@@ -370,11 +376,11 @@ import UserNotifications
     private func receive(_ line: String, id: UUID) {
         guard activeID == id, let i = items.firstIndex(where: { $0.id == id }), !["완료","실패","취소됨"].contains(items[i].state) else { return }
         if let p = StreamProgress.parse(line) { update(p, id: id) }
-        else if line.hasPrefix("ODPOST") || line.contains("[Merger]") { items[i].state = "영상·음성 병합 중" }
+        else if line.hasPrefix("ODPOST") || line.contains("[Merger]") || line.contains("[ExtractAudio]") { items[i].state = items[i].selectedFormat.audioFormat == nil ? "영상·음성 병합 중" : "음성 추출 중" }
         else { note(line) }
     }
     private func update(_ p: StreamProgress, id: UUID) {
-        guard activeID == id, let i = items.firstIndex(where: { $0.id == id }), !["완료","실패","취소됨","저장 확인 중","영상·음성 병합 중","MP4로 변환 중","MP4로 옮기는 중"].contains(items[i].state) else { return }
+        guard activeID == id, let i = items.firstIndex(where: { $0.id == id }), !["완료","실패","취소됨","저장 확인 중","영상·음성 병합 중","MP4로 변환 중","MP4로 옮기는 중","음성 추출 중"].contains(items[i].state) else { return }
         items[i].progress[p.id] = p; items[i].state = p.finished ? "다음 단계 준비 중" : "다운로드 중"
     }
 }

@@ -48,11 +48,13 @@ struct FormatChoice: Identifiable {
     var approximate = false
     var streamIDs: [String] = []
     var recommended = false
+    /// Set for audio-only choices ("m4a" or "mp3"): yt-dlp extracts the best audio stream into this format.
+    var audioFormat: String?
     var resolution: String { height > 0 ? "\(width)×\(height)" : "해상도 정보 없음" }
     var quality: String { height > 0 ? "\(height)p" + (fps > 0 ? " · \(Int(fps))fps" : "") : "해상도 정보 없음" }
     var sizeLabel: String { (approximate && size != nil ? "약 " : "") + bytes(size) }
     /// Quality menu text; the saved file type has its own column, so it is left out here.
-    var label: String { "\(recommended ? "최고 품질 · " : "")\(quality) · \(videoCodec) · \(sizeLabel)" }
+    var label: String { audioFormat.map { "음성만 · \($0.uppercased()) · \(sizeLabel)" } ?? "\(recommended ? "최고 품질 · " : "")\(quality) · \(videoCodec) · \(sizeLabel)" }
     var detail: String { [resolution, fps > 0 ? "\(Int(fps)) fps" : "", videoCodec, audioCodec, dynamicRange].filter { !$0.isEmpty && $0 != "none" && $0 != "NA" }.joined(separator: " · ") }
 }
 enum MediaKind: String, CaseIterable, Identifiable {
@@ -224,6 +226,13 @@ enum Metadata {
             if f["acodec"] as? String == "none" { guard let audio else { continue }; streams = [f, audio] } else { streams = [f] }
             let c = choice(streams)
             if !c.id.isEmpty && seen.insert(c.id).inserted { choices.append(c) }
+        }
+        // Audio-only choices take the best audio stream; the size is that stream's (MP3 re-encoding changes it a little).
+        if let audio, let id = audio["format_id"] as? String {
+            let size = number(audio, "filesize") ?? number(audio, "filesize_approx")
+            for format in ["m4a", "mp3"] {
+                choices.append(FormatChoice(id: "audio-" + format, ext: format, audioCodec: format == "mp3" ? "mp3" : "aac", size: size, approximate: true, streamIDs: [id], audioFormat: format))
+            }
         }
         return MediaItem(source: source, url: source, title: d["title"] as? String ?? source, subtitle: d["uploader"] as? String ?? URL(string: source)?.host ?? "", thumbnail: d["thumbnail"] as? String, duration: number(d, "duration"), choices: choices, formatID: best.id, engine: "yt-dlp")
     }

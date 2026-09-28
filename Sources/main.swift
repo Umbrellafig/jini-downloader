@@ -75,7 +75,7 @@ struct DownloadProgress: View {
                     HStack { Text(p.speed.map { bytes($0) + "/s" } ?? "속도 계산 중"); Spacer(); Text(p.eta.map { "남은 시간 " + durationText($0) } ?? "남은 시간 계산 중") }.font(.caption2).foregroundStyle(.secondary).monospacedDigit()
                 }
             }
-            if ["연결 중","영상·음성 병합 중","저장 확인 중","다음 단계 준비 중","MP4로 변환 중","MP4로 옮기는 중"].contains(item.state) {
+            if ["연결 중","영상·음성 병합 중","저장 확인 중","다음 단계 준비 중","MP4로 변환 중","MP4로 옮기는 중","음성 추출 중"].contains(item.state) {
                 HStack { ProgressView().controlSize(.mini); Text(item.state).font(.caption).foregroundStyle(.secondary) }
             }
         }
@@ -132,7 +132,7 @@ struct MediaRow: View {
                     Text([item.subtitle, item.duration != nil ? durationText(item.duration) : ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Text(item.kind.rawValue).font(.caption).foregroundStyle(.secondary).frame(width: Column.kind, alignment: .leading)
-                Text(item.kind == .video && container == .mp4 ? "MP4" : item.selectedFormat.ext.uppercased()).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(Color.mint.opacity(0.13)).clipShape(Capsule()).frame(width: Column.format, alignment: .leading)
+                Text(item.selectedFormat.audioFormat?.uppercased() ?? (item.kind == .video && container == .mp4 ? "MP4" : item.selectedFormat.ext.uppercased())).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(Color.mint.opacity(0.13)).clipShape(Capsule()).frame(width: Column.format, alignment: .leading)
                 Group {
                     if item.engine == "yt-dlp" {
                         Picker("저장 품질", selection: Binding(get: { item.formatID }, set: { item.formatID = $0; item.state = "준비됨"; item.progress = [:]; item.output = nil; item.error = "" })) {

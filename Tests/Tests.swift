@@ -11,6 +11,8 @@ import Foundation
         precondition(item.selectedFormat.size == 2200 && item.selectedFormat.approximate)
         precondition(item.selectedFormat.height == 2160 && item.selectedFormat.audioCodec == "opus")
         precondition(item.choices.contains { $0.id == "18" })
+        let m4a = item.choices.first { $0.id == "audio-m4a" }!, mp3 = item.choices.first { $0.id == "audio-mp3" }!
+        precondition(m4a.audioFormat == "m4a" && m4a.streamIDs == ["251"] && m4a.size == 200 && mp3.ext == "mp3" && m4a.label.hasPrefix("음성만 · M4A"))
         var unknown = a; unknown.removeValue(forKey:"filesize")
         precondition(Metadata.choice([v,unknown]).size == nil, "Partial sizes must not look like full sizes")
         precondition(StreamProgress.parse("ODP\t401\t50\t100\tNA\t10\t5\tdownloading")?.fraction == 0.5)
