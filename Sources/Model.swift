@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 
 @MainActor final class Model: ObservableObject {
     @Published var input = ""
@@ -9,6 +10,7 @@ import AppKit
     /// keeps the site's streams untouched in MKV instead.
     @Published var keepOriginalVideo = UserDefaults.standard.bool(forKey: "keepOriginalVideo") { didSet { UserDefaults.standard.set(keepOriginalVideo, forKey: "keepOriginalVideo") } }
     var videoContainer: VideoContainer { keepOriginalVideo ? .mkv : .mp4 }
+    @Published var notifyWhenDone = UserDefaults.standard.object(forKey: "notifyWhenDone") as? Bool ?? true { didSet { UserDefaults.standard.set(notifyWhenDone, forKey: "notifyWhenDone") } }
     /// After analysis, download the main content right away (see `instantPicks`).
     @Published var instantDownload = UserDefaults.standard.bool(forKey: "instantDownload") { didSet { UserDefaults.standard.set(instantDownload, forKey: "instantDownload") } }
     /// Offer to analyze a link found on the clipboard when the app comes forward.
@@ -190,6 +192,19 @@ import AppKit
             if instantDownload && !cancelled { Task { @MainActor in self.startInstant() } }
         }
     }
+    /// Tells the user a download run finished when they are working in another app.
+    private func notifyFinished(saved: [MediaItem], failed: Int) {
+        guard notifyWhenDone, !NSApp.isActive, !saved.isEmpty || failed > 0 else { return }
+        let content = UNMutableNotificationContent()
+        content.title = failed == 0 ? "다운로드 완료" : "다운로드 끝남 · 실패 \(failed)개"
+        content.body = saved.count == 1 ? "\(saved[0].output?.lastPathComponent ?? saved[0].title) 저장" : "\(saved.count)개 파일을 저장했습니다"
+        content.sound = .default
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        }
+    }
     private func startInstant() {
         let picks = Set(items.instantPicks)
         guard !picks.isEmpty else { status = "\(items.count)개 파일 · 바로 받을 동영상이나 게시물이 없어요. 받을 파일을 골라 주세요"; return }
@@ -274,6 +289,7 @@ import AppKit
             for id in ids { if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = "대기 중"; items[i].error = ""; items[i].queue = next; next += 1 } }
             for (n,id) in ids.enumerated() {
                 if Task.isCancelled { break }
+                NSApp.dockTile.badgeLabel = "\(ids.count - n)"
                 guard let i = items.firstIndex(where: { $0.id == id }) else { continue }
                 items[i].progress = [:]; items[i].error = ""; items[i].state = "연결 중"; activeID = id
                 status = "\(n+1)/\(ids.count) · \(items[i].title)"
@@ -321,7 +337,11 @@ import AppKit
                 } catch { items[i].state = Task.isCancelled ? "취소됨" : "실패"; items[i].error = Task.isCancelled ? "" : error.localizedDescription; note(error.localizedDescription) }
                 activeID = nil
             }
-            status = cancelled ? "다운로드 취소됨" : "완료 \(ids.filter { id in items.contains { $0.id == id && $0.state == "완료" } }.count) · 실패 \(ids.filter { id in items.contains { $0.id == id && $0.state == "실패" } }.count)"
+            let saved = ids.compactMap { id in items.first { $0.id == id && $0.state == "완료" } }
+            let failed = ids.filter { id in items.contains { $0.id == id && $0.state == "실패" } }.count
+            status = cancelled ? "다운로드 취소됨" : "완료 \(saved.count) · 실패 \(failed)"
+            NSApp.dockTile.badgeLabel = nil
+            if !cancelled { notifyFinished(saved: saved, failed: failed) }
         }
     }
     private func probeStreams(_ file: URL) async throws -> [[String: Any]] {
