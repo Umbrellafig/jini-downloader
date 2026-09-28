@@ -47,15 +47,22 @@ import WebKit
     static let script = #"""
     (() => {
       const out = [], seen = new Set();
-      const add = (raw, title, width, height, kind = 'image') => {
+      const add = (raw, title, width, height, kind = 'image', post = false) => {
         if (!raw || out.length >= 200) return;
         try {
           const u = new URL(raw, document.baseURI);
           if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || seen.has(u.href)) return;
-          if (width > 0 && height > 0 && (width < 48 || height < 48)) return;
-          seen.add(u.href); out.push({url:u.href, title:title || '', width:width || 0, height:height || 0, kind});
+          // Skip icons and pixels, but keep long strips such as webtoons shown 41×745.
+          if (width > 0 && height > 0 && (Math.max(width, height) < 48 || width * height < 48 * 48)) return;
+          seen.add(u.href); out.push({url:u.href, title:title || '', width:width || 0, height:height || 0, kind, post});
         } catch (_) {}
       };
+      // A link to one post (e.g. Padlet /wish/…) opens it in a dialog; list its images first.
+      for (const dialog of document.querySelectorAll('[role=dialog], [aria-modal=true]')) {
+        for (const img of dialog.querySelectorAll('img')) {
+          if (img.complete && img.naturalWidth) add(img.currentSrc || img.src, img.alt || img.title, img.naturalWidth, img.naturalHeight, 'image', true);
+        }
+      }
       for (const img of document.images) {
         // currentSrc is the actual resource chosen by the browser, including picture/srcset.
         if (!img.complete || !img.naturalWidth) continue;
@@ -93,15 +100,27 @@ import WebKit
         guard !items.isEmpty else { throw failure("로드된 이미지를 찾지 못했습니다. 사이트 확인 화면을 직접 완료하고, 사진이 보이도록 스크롤한 뒤 다시 시도해 주세요.") }
         return items
     }
+    /// Image proxies and resizers (padlet.pics, Next.js /_next/image, wsrv.nl, …) carry the original in a `url` parameter.
+    static func original(_ url: URL) -> URL? {
+        guard let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value,
+              let inner = webURL(value), inner.host != url.host || inner.path != url.path else { return nil }
+        return inner
+    }
     static func items(_ rows: [[String: Any]], source: String) -> [MediaItem] {
         var seen = Set<String>()
         return rows.prefix(200).compactMap { row in
-            guard let value = row["url"] as? String, let url = webURL(value), seen.insert(value).inserted else { return nil }
+            guard let shown = row["url"] as? String, let shownURL = webURL(shown) else { return nil }
+            let isVideo = row["kind"] as? String == "video"
+            // Save the original behind a proxy; the proxy's small copy stays as the preview. Its pixel size is the copy's, so drop it.
+            let inner = isVideo ? nil : original(shownURL)
+            let url = inner ?? shownURL, value = url.absoluteString
+            guard seen.insert(value).inserted else { return nil }
             let ext = url.pathExtension.lowercased()
             let known = ["mp4", "webm", "mov", "m4v", "jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "tiff", "bmp", "svg"].contains(ext)
             let name = safeName(url.lastPathComponent.isEmpty ? "image" : url.lastPathComponent)
-            let choice = FormatChoice(id: "direct", ext: known ? ext : "?", width: Int(number(row, "width") ?? 0), height: Int(number(row, "height") ?? 0), streamIDs: ["direct"])
-            var item = MediaItem(source: source, url: value, title: name, subtitle: row["title"] as? String ?? "웹페이지 이미지", thumbnail: row["kind"] as? String == "video" ? nil : value, choices: [choice], formatID: "direct")
+            let choice = FormatChoice(id: "direct", ext: known ? ext : "?", width: inner == nil ? Int(number(row, "width") ?? 0) : 0, height: inner == nil ? Int(number(row, "height") ?? 0) : 0, streamIDs: ["direct"])
+            let subtitle = row["post"] as? Bool == true ? "열린 게시물" : (row["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "웹페이지 이미지"
+            var item = MediaItem(source: source, url: value, title: name, subtitle: subtitle, thumbnail: isVideo ? nil : shown, choices: [choice], formatID: "direct")
             item.selected = false
             if row["kind"] as? String == "video" { item.kindHint = .video }
             item.headers = ["Referer": source]

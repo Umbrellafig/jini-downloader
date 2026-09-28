@@ -12,6 +12,16 @@ import WebKit
             precondition(items.count == 1 && !items[0].selected)
             precondition(items[0].selectedFormat.width == 640 && items[0].selectedFormat.size == nil)
             precondition(items[0].headers["Referer"] == "https://example.com/deal")
+            let proxied = WebImages.items([
+                ["url": "https://v1.padlet.pics/3/image.webp?t=w_41&url=https%3A%2F%2Fu1.example.com%2Fup%2Ftoon.png%3Fexpiry_token%3Dabc", "width": 41, "height": 745, "post": true],
+                ["url": "https://v1.padlet.pics/3/image.webp?t=w_240&url=https%3A%2F%2Fu1.example.com%2Fup%2Ftoon.png%3Fexpiry_token%3Dabc", "width": 240, "height": 4000],
+                ["url": "https://cdn.example.com/a.jpg?url=file%3A%2F%2F%2Fetc%2Fpasswd", "width": 300, "height": 200]
+            ], source: "https://padlet.com/board/wish/1")
+            precondition(proxied.count == 2)
+            precondition(proxied[0].url == "https://u1.example.com/up/toon.png?expiry_token=abc" && proxied[0].title == "toon.png" && proxied[0].subtitle == "열린 게시물")
+            precondition(proxied[0].thumbnail?.hasPrefix("https://v1.padlet.pics/") == true && proxied[0].selectedFormat.height == 0)
+            precondition(proxied[1].url == "https://cdn.example.com/a.jpg?url=file%3A%2F%2F%2Fetc%2Fpasswd")
+            print("Web image proxies: original behind url= parameter, deduplication across sizes, preview kept, non-web targets ignored")
             print("Web image metadata: URL safety, deduplication, dimensions, unknown size, selection and headers passed")
             guard CommandLine.arguments.contains("--browser") else { return }
         let app = NSApplication.shared
