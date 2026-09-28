@@ -138,6 +138,17 @@ import Foundation
         precondition(siteFolder(fromSite) == "youtube.com")
         fromSite.source = "https://padlet.com/board"; precondition(siteFolder(fromSite) == "padlet.com")
         precondition(FileNaming.allCases.allSatisfy { $0.template.hasSuffix(".%(ext)s") } && FileNaming.dateTitle.template.contains("&{} |"))
+        let session = HTTPCookie(properties: [.domain: ".example.com", .path: "/", .name: "sid", .value: "abc", .secure: "TRUE"])!
+        let scoped = HTTPCookie(properties: [.domain: "cdn.example.com", .path: "/private", .name: "k", .value: "1", .expires: Date(timeIntervalSince1970: (Date().timeIntervalSince1970 + 86_400).rounded(.down))])!
+        let other = HTTPCookie(properties: [.domain: "other.com", .path: "/", .name: "x", .value: "y"])!
+        let jar = [session, scoped, other]
+        precondition(Cookies.header(for: URL(string: "https://cdn.example.com/private/a.png")!, from: jar) == "sid=abc; k=1")
+        precondition(Cookies.header(for: URL(string: "https://www.example.com/")!, from: jar) == "sid=abc")
+        precondition(Cookies.header(for: URL(string: "http://www.example.com/")!, from: jar) == nil, "Secure cookies need https")
+        precondition(Cookies.header(for: URL(string: "https://notexample.com/")!, from: jar) == nil)
+        let txt = Cookies.netscape([session, scoped])
+        precondition(txt.hasPrefix("# Netscape HTTP Cookie File\n") && txt.contains(".example.com\tTRUE\t/\tTRUE\t0\tsid\tabc") && txt.contains("cdn.example.com\tFALSE\t/private\tFALSE\t\(Int(scoped.expiresDate!.timeIntervalSince1970))\tk\t1"))
+        print("PASS: browser cookies: domain/path/secure matching, header, cookies.txt")
         print("PASS: MP4 plan: already fine, remux, HEVC tag, VP9/Opus re-encode, no audio")
         print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")

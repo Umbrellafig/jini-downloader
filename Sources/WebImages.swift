@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 // A separate, ephemeral browsing session. It never imports the user's browser cookies.
-@MainActor final class WebImages: NSObject, ObservableObject, WKNavigationDelegate {
+@MainActor final class WebImages: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
     let webView: WKWebView
     @Published var status = "페이지를 여는 중…"
     @Published var scanning = false
@@ -15,6 +15,7 @@ import WebKit
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1100, height: 800), configuration: configuration)
         super.init()
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
     }
     func open(_ url: URL) { address = url.absoluteString; webView.load(URLRequest(url: url)) }
@@ -26,6 +27,11 @@ import WebKit
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url, webURL(url.absoluteString) != nil else { decisionHandler(.cancel); return }
         decisionHandler(.allow)
+    }
+    /// Login pages often open a popup; show it in this view instead of dropping it.
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url, webURL(url.absoluteString) != nil { webView.load(navigationAction.request) }
+        return nil
     }
     func inspect(_ url: URL) async throws -> [MediaItem] {
         open(url)

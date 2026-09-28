@@ -250,6 +250,37 @@ struct ClipButton: View {
         }
     }
 }
+/// The in-app browser: the user logs in or passes a site check, scrolls to the media, and collects what the screen shows.
+struct BrowserSheet: View {
+    @ObservedObject var m: Model
+    @ObservedObject var session: WebImages
+    @State private var address = ""
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Button { session.webView.goBack() } label: { Image(systemName: "chevron.left") }.help("뒤로")
+                Button { session.webView.goForward() } label: { Image(systemName: "chevron.right") }.help("앞으로")
+                Button { session.webView.reload() } label: { Image(systemName: "arrow.clockwise") }.help("새로고침")
+                TextField("주소", text: $address).textFieldStyle(.roundedBorder).onSubmit {
+                    let text = address.trimmingCharacters(in: .whitespaces)
+                    if let u = webURL(text) ?? webURL("https://" + text) { session.open(u) }
+                }
+            }
+            WebImageView(browser: session).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1)))
+            HStack(spacing: 10) {
+                Image(systemName: "lock.shield").foregroundStyle(.mint)
+                Text("로그인·사이트 확인을 마치고 사진·영상이 보이도록 스크롤한 뒤 ‘이 화면에서 찾기’를 누르세요. 여기서 한 로그인은 저장되지 않고 앱을 끄면 사라집니다.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                if m.busy { ProgressView().controlSize(.small) }
+                Text(m.status).font(.caption).lineLimit(2).frame(maxWidth: 260, alignment: .trailing)
+                Button("닫기") { m.showBrowser = false }.keyboardShortcut(.cancelAction)
+                Button("이 화면에서 찾기") { m.findInBrowser() }.buttonStyle(.borderedProminent).tint(.mint).foregroundStyle(.black).disabled(m.busy || !m.enginesReady)
+            }
+        }.padding(12).frame(minWidth: 1000, idealWidth: 1100, minHeight: 720, idealHeight: 820).preferredColorScheme(.dark)
+        .onAppear { address = session.address }
+        .onReceive(session.$address) { address = $0 }
+    }
+}
 struct SettingsView: View {
     @ObservedObject var m: Model
     var body: some View {
@@ -355,6 +386,7 @@ struct ContentView: View {
                 HStack {
                     Button("붙여넣기") { m.paste() }.disabled(m.busy)
                     Spacer()
+                    Button("직접 열기") { m.openBrowser() }.disabled(m.busy).help("로그인이나 사이트 확인이 필요한 페이지를 앱 안에서 열고, 보이는 사진·영상을 찾습니다")
                     Button(m.instantDownload ? "분석하고 받기" : "분석하기") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
                 }
                 HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); Button("기록") { openWindow(id: "history") }.help("다운로드 기록 (⌘Y)"); SettingsButton(); Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
@@ -402,7 +434,13 @@ struct ContentView: View {
                             }
                         }
                         if !m.items.isEmpty && shown.isEmpty { Text(found.isEmpty ? "남은 파일이 없습니다. 아래 다운로드 목록을 확인하세요." : "이 종류의 파일은 없습니다.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 30) }
-                        ForEach(Array(m.previewErrors.enumerated()), id: \.offset) { _, e in Text(e).font(.caption).foregroundStyle(.orange).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(Color.orange.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 8)) }
+                        ForEach(Array(m.previewErrors.enumerated()), id: \.offset) { _, e in
+                            HStack(alignment: .top) {
+                                Text(e).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                                Spacer()
+                                Button("직접 열어서 찾기") { m.openBrowser() }.font(.caption).disabled(m.busy)
+                            }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(Color.orange.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
                     }.padding(.vertical, 2)
                 }.frame(minHeight: 160)
                 HStack {
@@ -455,11 +493,12 @@ struct ContentView: View {
             }
         }
         .sheet(item: $previewing) { PreviewSheet(item: $0) }
+        .sheet(isPresented: $m.showBrowser) { if let session = m.browser { BrowserSheet(m: m, session: session) } }
         .quickLookPreview($quickLook)
         .onAppear { Installation.checkOnce(); Task { await m.checkClipboard() } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await m.checkClipboard() } }
         .onChange(of: m.busy) { busy in if !busy { updates.workFinished() } }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in m.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in m.stop(); Model.clearCookieFiles() }
     }
 
 }

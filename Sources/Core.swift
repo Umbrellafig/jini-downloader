@@ -145,6 +145,28 @@ func siteFolder(_ item: MediaItem) -> String {
     let host = URL(string: item.source)?.host ?? URL(string: item.url)?.host ?? "기타"
     return safeName(host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)
 }
+/// Cookies from the in-app browser, handed to downloads that need the user's login.
+enum Cookies {
+    /// Whether a cookie applies to a URL (domain and path match, secure cookies only over https).
+    static func matches(_ cookie: HTTPCookie, _ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        let domain = cookie.domain.lowercased(), bare = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
+        let hostOK = host == bare || host.hasSuffix("." + bare)
+        let path = url.path.isEmpty ? "/" : url.path
+        return hostOK && path.hasPrefix(cookie.path) && (!cookie.isSecure || url.scheme == "https")
+    }
+    /// The Cookie header value for a request, or nil when no cookie applies.
+    static func header(for url: URL, from cookies: [HTTPCookie]) -> String? {
+        let fitting = cookies.filter { matches($0, url) }
+        return fitting.isEmpty ? nil : fitting.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+    }
+    /// Netscape cookies.txt for yt-dlp's --cookies.
+    static func netscape(_ cookies: [HTTPCookie]) -> String {
+        "# Netscape HTTP Cookie File\n" + cookies.map { c in
+            [c.domain, c.domain.hasPrefix(".") ? "TRUE" : "FALSE", c.path, c.isSecure ? "TRUE" : "FALSE", String(Int(c.expiresDate?.timeIntervalSince1970 ?? 0)), c.name, c.value].joined(separator: "\t")
+        }.joined(separator: "\n") + "\n"
+    }
+}
 enum MP4 {
     /// Codecs QuickTime plays from an MP4 as they are; anything else is re-encoded.
     static let copyVideo: Set<String> = ["h264", "hevc", "av1"]
@@ -193,6 +215,8 @@ struct MediaItem: Identifiable {
     var kindHint: MediaKind?
     /// The main content of the link: media of an opened post or a photo gallery, as opposed to page decoration.
     var featured = false
+    /// Temporary cookies.txt from the in-app browser, for videos that need the user's login.
+    var cookieFile: String?
     /// Download only this section of a video, in seconds (start, end).
     var clip: (start: Double, end: Double)?
     /// When this media was downloaded before, from the download history.

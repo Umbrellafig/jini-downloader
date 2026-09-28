@@ -61,6 +61,7 @@ import UserNotifications
         enginesReady = installer?.ready ?? false
         if let path = UserDefaults.standard.string(forKey: "saveFolder") { folder = URL(fileURLWithPath: path) }
         else { folder = Self.defaultFolder }
+        Self.clearCookieFiles()
         // A new tool revision after an app update: the user already agreed to the tools, so upgrade in place.
         if !enginesReady, installer?.hasPreviousInstall == true { installEngines() }
     }
@@ -105,6 +106,51 @@ import UserNotifications
             if enginesReady { analyze() }
         }
     }
+    /// The in-app browser for pages that need a login or a site check. Its session lives in memory only.
+    @Published var browser: WebImages?
+    @Published var showBrowser = false
+    static let cookieFolder = FileManager.default.temporaryDirectory.appendingPathComponent("JiniDownloader-cookies", isDirectory: true)
+    func openBrowser() {
+        let session = browser ?? WebImages()
+        browser = session
+        if session.webView.url == nil, let first = input.components(separatedBy: .newlines).lazy.compactMap({ webURL($0.trimmingCharacters(in: .whitespaces)) }).first { session.open(first) }
+        showBrowser = true
+    }
+    /// Collects the media on the browser's current screen, with the session's cookies attached so logged-in files download.
+    func findInBrowser() {
+        guard !busy, let session = browser, let page = session.webView.url, webURL(page.absoluteString) != nil else { return }
+        busy = true; analyzing = true; cancelled = false; snapshot = signature
+        status = "지금 화면에서 이미지와 동영상 찾는 중"
+        task = Task {
+            defer { busy = false; analyzing = false; task = nil; runner = nil }
+            let before = items.count
+            let cookies = await session.webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+            let jar = cookies.isEmpty ? nil : try? writeCookies(cookies)
+            var found = (try? await session.scan()) ?? []
+            for i in found.indices { if let u = webURL(found[i].url), let header = Cookies.header(for: u, from: cookies) { found[i].headers["Cookie"] = header } }
+            appendResults(found)
+            let pages = [page.absoluteString] + session.embeds
+            let videos = await withTaskGroup(of: [MediaItem].self) { group in
+                for link in pages { group.addTask { await self.attempt("동영상") { try await self.inspectVideo(link, cookies: jar) } } }
+                var all: [MediaItem] = []
+                for await result in group { all += result }
+                return all
+            }
+            appendResults(videos)
+            let added = items.suffix(items.count - before)
+            await probeDirect(added.filter { $0.engine == "direct" }.map(\.id))
+            status = added.isEmpty ? "이 화면에서 받을 파일을 찾지 못했어요. 사진·영상이 보이도록 스크롤한 뒤 다시 찾아 주세요" : "\(added.count)개 추가 · 목록에서 골라 받으세요"
+        }
+    }
+    private func writeCookies(_ cookies: [HTTPCookie]) throws -> URL {
+        let fm = FileManager.default
+        try fm.createDirectory(at: Self.cookieFolder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let file = Self.cookieFolder.appendingPathComponent(UUID().uuidString + ".txt")
+        guard fm.createFile(atPath: file.path, contents: Data(Cookies.netscape(cookies).utf8), attributes: [.posixPermissions: 0o600]) else { throw failure("로그인 정보를 임시로 저장하지 못했습니다.") }
+        return file
+    }
+    /// Browser cookies are never kept: drop the session's temporary cookie files.
+    static func clearCookieFiles() { try? FileManager.default.removeItem(at: cookieFolder) }
     func acceptClipboard() {
         clipboardOffer = false
         paste()
@@ -180,22 +226,7 @@ import UserNotifications
                     if !Task.isCancelled { previewErrors.append("\(value)\n\(error.localizedDescription)") }
                 }
             }
-            // Name and size checks are small HEAD requests; run up to eight at once within the time limit.
-            let deadline = Date().addingTimeInterval(12)
-            var pending = items.filter { $0.engine == "direct" }.compactMap { item in webURL(item.url).map { (item.id, $0, item.headers) } }[...]
-            if !pending.isEmpty && !Task.isCancelled { status = "\(items.count)개 찾음 · 파일 이름과 용량 확인 중" }
-            await withTaskGroup(of: (UUID, MediaItem?).self) { group in
-                func probe(_ job: (UUID, URL, [String: String])) { group.addTask { (job.0, try? await self.inspectDirect(job.1, headers: job.2, timeout: 2)) } }
-                for _ in 0..<8 { if let job = pending.popFirst() { probe(job) } }
-                for await (id, info) in group {
-                    if let info, let i = items.firstIndex(where: { $0.id == id }) {
-                        items[i].choices[0].size = info.selectedFormat.size
-                        if info.selectedFormat.ext != "?" { items[i].choices[0].ext = info.selectedFormat.ext }
-                        items[i].title = info.title
-                    }
-                    if !Task.isCancelled, Date() < deadline, let job = pending.popFirst() { probe(job) }
-                }
-            }
+            await probeDirect(items.filter { $0.engine == "direct" }.map(\.id))
             snapshot = sig
             status = cancelled ? "분석 중단 · 찾은 파일은 선택해서 받을 수 있습니다" : "\(items.count)개 파일 · 원하는 항목을 선택하거나 전체 다운로드하세요"
             // Runs after this task's cleanup has cleared busy, so the download can start.
@@ -224,6 +255,24 @@ import UserNotifications
         for i in items.indices where !items[i].inDownloads { items[i].selected = picks.contains(items[i].id) }
         start()
     }
+    /// Name and size checks for direct files are small HEAD requests; run up to eight at once within a time limit.
+    private func probeDirect(_ ids: [UUID]) async {
+        let deadline = Date().addingTimeInterval(12)
+        var pending = items.filter { ids.contains($0.id) }.compactMap { item in webURL(item.url).map { (item.id, $0, item.headers) } }[...]
+        if !pending.isEmpty && !Task.isCancelled { status = "\(items.count)개 찾음 · 파일 이름과 용량 확인 중" }
+        await withTaskGroup(of: (UUID, MediaItem?).self) { group in
+            func probe(_ job: (UUID, URL, [String: String])) { group.addTask { (job.0, try? await self.inspectDirect(job.1, headers: job.2, timeout: 2)) } }
+            for _ in 0..<8 { if let job = pending.popFirst() { probe(job) } }
+            for await (id, info) in group {
+                if let info, let i = items.firstIndex(where: { $0.id == id }) {
+                    items[i].choices[0].size = info.selectedFormat.size
+                    if info.selectedFormat.ext != "?" { items[i].choices[0].ext = info.selectedFormat.ext }
+                    items[i].title = info.title
+                }
+                if !Task.isCancelled, Date() < deadline, let job = pending.popFirst() { probe(job) }
+            }
+        }
+    }
     /// Runs one finder; a failure goes to the log so the other finders' results still count.
     private func attempt(_ label: String, _ work: () async throws -> [MediaItem]) async -> [MediaItem] {
         do { return try await work() }
@@ -250,13 +299,15 @@ import UserNotifications
         ["--ignore-config", "--no-plugin-dirs", "--no-playlist", "--no-colors", "--socket-timeout", "25", "--retries", "2", "--ffmpeg-location", bin.path, "--js-runtimes", "deno:" + bin.appendingPathComponent("deno").path]
     }
     /// One video with its formats, or the videos of a playlist link (listed without per-video analysis).
-    private func inspectVideo(_ value: String) async throws -> [MediaItem] {
-        let r = try await execute("yt-dlp", videoBase + ["--skip-download", "--flat-playlist", "-I", "1:200", "--dump-single-json", "-f", "bv*+ba/b", "--", value], metadata: true)
+    private func inspectVideo(_ value: String, cookies: URL? = nil) async throws -> [MediaItem] {
+        let login = cookies.map { ["--cookies", $0.path] } ?? []
+        let r = try await execute("yt-dlp", videoBase + login + ["--skip-download", "--flat-playlist", "-I", "1:200", "--dump-single-json", "-f", "bv*+ba/b", "--", value], metadata: true)
         if let entries = try Metadata.playlist(r.output, source: value) {
             guard !entries.isEmpty else { throw failure("재생목록에서 받을 수 있는 영상을 찾지 못했습니다.") }
             return entries
         }
         var item = try Metadata.video(r.output, source: value)
+        item.cookieFile = cookies?.path
         if item.choices.count == 1 && item.selectedFormat.size == nil, let u = webURL(value), !u.pathExtension.isEmpty, let direct = try? await inspectDirect(u) { item.choices[0].size = direct.selectedFormat.size }
         if r.errors.contains("WARNING:") { item.warning = r.errors.components(separatedBy: .newlines).filter { $0.contains("WARNING:") }.joined(separator: "\n") }
         return [item]
@@ -319,7 +370,7 @@ import UserNotifications
                     defer { try? FileManager.default.removeItem(at: stage) }
                     let saved: URL
                     if item.engine == "yt-dlp" {
-                        _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate"] + selection(item) + ["-P", stage.path, "-o", naming.template, "--", item.url], id: id)
+                        _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate"] + selection(item) + (item.cookieFile.map { ["--cookies", $0] } ?? []) + ["-P", stage.path, "-o", naming.template, "--", item.url], id: id)
                         items[i].state = "저장 확인 중"
                         let written = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).filter { !["part","ytdl","json"].contains($0.pathExtension) && !$0.lastPathComponent.hasPrefix(".") }
                         let files = written.filter { !Subtitles.isSubtitle($0) }, subtitleFiles = written.filter(Subtitles.isSubtitle)
