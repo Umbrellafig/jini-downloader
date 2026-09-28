@@ -119,7 +119,7 @@ struct MediaRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                Toggle("받기", isOn: $item.selected).labelsHidden().toggleStyle(.checkbox).disabled(busy).accessibilityLabel("\(item.title) 선택").frame(width: Column.check)
+                Toggle("받기", isOn: $item.selected).labelsHidden().toggleStyle(.checkbox).disabled(busy || item.state == "완료").accessibilityLabel("\(item.title) 선택").frame(width: Column.check).opacity(item.state == "완료" ? 0 : 1)
                 Button(action: onPreview) {
                     Thumbnail(url: item.thumbnail, headers: item.headers, kind: item.kind).frame(width: Column.thumb, height: 36).clipShape(RoundedRectangle(cornerRadius: 5))
                 }.buttonStyle(.plain).help("크게 보기").accessibilityLabel("\(item.title) 크게 보기")
@@ -178,7 +178,9 @@ struct ContentView: View {
     @State var kindFilter: MediaKind?
     @State var sort: ColumnSort?
     @State var previewing: MediaItem?
-    var shown: [MediaItem] { m.items.arranged(kind: kindFilter, sort: sort) }
+    var found: [MediaItem] { m.items.filter { !$0.inDownloads } }
+    var shown: [MediaItem] { found.arranged(kind: kindFilter, sort: sort) }
+    var downloads: [MediaItem] { m.items.filter(\.inDownloads).sorted { ($0.queue ?? .max) < ($1.queue ?? .max) } }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 20) {
@@ -228,9 +230,9 @@ struct ContentView: View {
                 if !m.items.isEmpty {
                     HStack {
                         Picker("종류", selection: $kindFilter) {
-                            Text("전체 \(m.items.count)").tag(MediaKind?.none)
+                            Text("전체 \(found.count)").tag(MediaKind?.none)
                             ForEach(MediaKind.allCases) { kind in
-                                let n = m.items.filter { $0.kind == kind }.count
+                                let n = found.filter { $0.kind == kind }.count
                                 if n > 0 || kind != .other { Text("\(kind.rawValue) \(n)").tag(MediaKind?.some(kind)) }
                             }
                         }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 360)
@@ -252,10 +254,10 @@ struct ContentView: View {
                                 MediaRow(item: $m.items[i], busy: m.busy && !m.analyzing) { previewing = m.items[i] }
                             }
                         }
-                        if !m.items.isEmpty && shown.isEmpty { Text("이 종류의 파일은 없습니다.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 30) }
+                        if !m.items.isEmpty && shown.isEmpty { Text(found.isEmpty ? "남은 파일이 없습니다. 아래 다운로드 목록을 확인하세요." : "이 종류의 파일은 없습니다.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 30) }
                         ForEach(Array(m.previewErrors.enumerated()), id: \.offset) { _, e in Text(e).font(.caption).foregroundStyle(.orange).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(Color.orange.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 8)) }
                     }.padding(.vertical, 2)
-                }.frame(minHeight: 210)
+                }.frame(minHeight: 160)
                 HStack {
                     if !m.items.isEmpty {
                         // Selection follows the visible list, so a filtered kind can be picked in one step.
@@ -267,6 +269,27 @@ struct ContentView: View {
                     Spacer()
                     Button("전체 다운로드") { m.downloadAll() }.disabled(m.busy || m.stale || !m.enginesReady || !m.items.contains { $0.state != "완료" })
                     Button("선택 다운로드") { m.start() }.buttonStyle(.borderedProminent).tint(.mint).foregroundStyle(.black).disabled(!m.canDownload)
+                }
+                if !downloads.isEmpty {
+                    // Started items live here in queue order, so the found list above never reshuffles during a download.
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Label("다운로드", systemImage: "arrow.down.circle").font(.headline)
+                            let done = downloads.filter { $0.state == "완료" }.count, failed = downloads.filter { $0.state == "실패" }.count
+                            Text("완료 \(done) · 실패 \(failed) · 진행·대기 \(downloads.count - done - failed)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            Spacer()
+                            Button("완료 항목 정리") { m.clearFinished() }.disabled(m.busy || !downloads.contains { $0.state == "완료" }).help("저장된 파일은 그대로 두고 목록에서만 지웁니다")
+                        }
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 3) {
+                                ForEach(downloads) { row in
+                                    if let i = m.items.firstIndex(where: { $0.id == row.id }) {
+                                        MediaRow(item: $m.items[i], busy: m.busy) { previewing = m.items[i] }
+                                    }
+                                }
+                            }
+                        }.frame(minHeight: 80, maxHeight: 220)
+                    }.padding(10).background(Color.black.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 DisclosureGroup("상세 로그", isExpanded: $showLog) { ScrollView { Text(m.log).font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(8) }.frame(height: 100).background(Color.black.opacity(0.12)) }.font(.caption)
                 Text("용량은 서버 정보 기준이며 ‘약’은 추정값입니다. 병합 후 크기는 달라질 수 있습니다.").font(.caption2).foregroundStyle(.secondary)

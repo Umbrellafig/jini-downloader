@@ -63,7 +63,11 @@ struct MediaItem: Identifiable {
     var output: URL?
     var progress: [String: StreamProgress] = [:]
     var kindHint: MediaKind?
+    /// Position in the download section; set when a download run queues the item.
+    var queue: Int?
     var selectedFormat: FormatChoice { choices.first { $0.id == formatID } ?? choices[0] }
+    /// Queued, running, finished or failed items leave the found list for the download section.
+    var inDownloads: Bool { state != "준비됨" }
     var kind: MediaKind {
         if let kindHint { return kindHint }
         let ext = selectedFormat.ext.lowercased()

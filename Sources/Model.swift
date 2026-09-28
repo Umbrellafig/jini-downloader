@@ -58,7 +58,8 @@ import AppKit
     func note(_ s: String) { guard !s.isEmpty else { return }; log += "\n" + s; if log.count > 36000 { log = String(log.suffix(28000)) } }
     func choose() { let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.directoryURL = folder; if p.runModal() == .OK, let u = p.url { folder = u; UserDefaults.standard.set(u.path, forKey: "saveFolder") } }
     func stop() { cancelled = true; task?.cancel(); runner?.cancel(); transfer?.cancel(); status = "취소 중…" }
-    func invalidateSelection(_ id: UUID) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = "준비됨"; items[i].error = ""; items[i].progress = [:]; items[i].output = nil } }
+    func invalidateSelection(_ id: UUID) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = "준비됨"; items[i].error = ""; items[i].progress = [:]; items[i].output = nil; items[i].queue = nil } }
+    func clearFinished() { items.removeAll { $0.state == "완료" } }
     func appendResults(_ found: [MediaItem]) {
         var seen = Set(items.map(\.url))
         for var item in found where seen.insert(item.url).inserted {
@@ -188,8 +189,14 @@ import AppKit
         let ids = items.filter { $0.selected && $0.state != "완료" }.map(\.id); let dest = folder
         busy = true; cancelled = false; log = "선택한 포맷으로 저장합니다. 재인코딩하지 않습니다."
         task = Task {
-            defer { busy = false; activeID = nil; runner = nil; transfer = nil; task = nil }
+            defer {
+                // Items a cancelled run never reached go back to the found list.
+                for i in items.indices where items[i].state == "대기 중" { items[i].state = "준비됨"; items[i].queue = nil }
+                busy = false; activeID = nil; runner = nil; transfer = nil; task = nil
+            }
             do { try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true) } catch { status = error.localizedDescription; return }
+            var next = (items.compactMap(\.queue).max() ?? 0) + 1
+            for id in ids { if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = "대기 중"; items[i].error = ""; items[i].queue = next; next += 1 } }
             for (n,id) in ids.enumerated() {
                 if Task.isCancelled { break }
                 guard let i = items.firstIndex(where: { $0.id == id }) else { continue }
