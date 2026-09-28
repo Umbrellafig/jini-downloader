@@ -13,6 +13,10 @@ import UserNotifications
     @Published var notifyWhenDone = UserDefaults.standard.object(forKey: "notifyWhenDone") as? Bool ?? true { didSet { UserDefaults.standard.set(notifyWhenDone, forKey: "notifyWhenDone") } }
     /// After analysis, download the main content right away (see `instantPicks`).
     @Published var instantDownload = UserDefaults.standard.bool(forKey: "instantDownload") { didSet { UserDefaults.standard.set(instantDownload, forKey: "instantDownload") } }
+    @Published var subtitlesEnabled = UserDefaults.standard.bool(forKey: "subtitlesEnabled") { didSet { UserDefaults.standard.set(subtitlesEnabled, forKey: "subtitlesEnabled") } }
+    @Published var subtitleLanguages = UserDefaults.standard.string(forKey: "subtitleLanguages") ?? "ko,en" { didSet { UserDefaults.standard.set(subtitleLanguages, forKey: "subtitleLanguages") } }
+    @Published var autoSubtitles = UserDefaults.standard.bool(forKey: "autoSubtitles") { didSet { UserDefaults.standard.set(autoSubtitles, forKey: "autoSubtitles") } }
+    @Published var embedSubtitles = UserDefaults.standard.bool(forKey: "embedSubtitles") { didSet { UserDefaults.standard.set(embedSubtitles, forKey: "embedSubtitles") } }
     let history = History()
     /// Record finished downloads so later analyses can mark files received before.
     @Published var keepHistory = UserDefaults.standard.object(forKey: "keepHistory") as? Bool ?? true { didSet { UserDefaults.standard.set(keepHistory, forKey: "keepHistory") } }
@@ -314,7 +318,8 @@ import UserNotifications
                     if item.engine == "yt-dlp" {
                         _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate"] + selection(item.selectedFormat) + ["-P", stage.path, "-o", "%(title).150B [%(id)s].%(ext)s", "--", item.url], id: id)
                         items[i].state = "저장 확인 중"
-                        let files = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).filter { !["part","ytdl","json"].contains($0.pathExtension) && !$0.lastPathComponent.hasPrefix(".") }
+                        let written = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).filter { !["part","ytdl","json"].contains($0.pathExtension) && !$0.lastPathComponent.hasPrefix(".") }
+                        let files = written.filter { !Subtitles.isSubtitle($0) }, subtitleFiles = written.filter(Subtitles.isSubtitle)
                         guard files.count == 1 else { throw failure("완성 파일을 확인하지 못했습니다. \(files.count)개 결과가 있습니다.") }
                         let streams = try await probeStreams(files[0])
                         if let v = streams.first(where: { $0["codec_type"] as? String == "video" }) {
@@ -328,6 +333,11 @@ import UserNotifications
                         }
                         let finished = item.selectedFormat.audioFormat == nil ? try await finishVideo(files[0], streams: streams, in: stage, id: id) : files[0]
                         saved = try moveUnique(finished, to: dest)
+                        // Separate subtitle files follow the saved video's final name, keeping their language code. When they were
+                        // embedded, the files are only kept as a fallback if the video ended up without a subtitle track.
+                        let embedded = embedSubtitles && streams.contains { $0["codec_type"] as? String == "subtitle" }
+                        for subtitle in subtitleFiles where !embedded { try? FileManager.default.moveItem(at: subtitle, to: Subtitles.target(for: subtitle, media: files[0], saved: saved)) }
+                        if !subtitleFiles.isEmpty { note(embedded ? "자막을 영상에 넣었습니다." : "자막 \(subtitleFiles.count)개를 함께 저장했습니다.") }
                     } else {
                         let t = FileTransfer(); transfer = t
                         t.progress = { [weak self] p in Task { @MainActor [weak self] in self?.update(p, id: id) } }
@@ -360,8 +370,14 @@ import UserNotifications
     }
     /// yt-dlp format arguments: merged video+audio into MKV, or the best audio extracted into M4A/MP3.
     private func selection(_ format: FormatChoice) -> [String] {
-        guard let audio = format.audioFormat else { return ["--merge-output-format", "mkv", "-f", format.id] }
+        guard let audio = format.audioFormat else { return ["--merge-output-format", "mkv", "-f", format.id] + subtitleArguments }
         return ["-f", audio == "m4a" ? "ba[ext=m4a]/ba" : "ba", "-x", "--audio-format", audio, "--audio-quality", "0"]
+    }
+    /// Subtitle options for video downloads: chosen languages as SRT, as files beside the video or embedded in it.
+    private var subtitleArguments: [String] {
+        guard subtitlesEnabled else { return [] }
+        let languages = subtitleLanguages.filter { $0.isLetter || $0.isNumber || ",-_.*".contains($0) }
+        return ["--write-subs"] + (autoSubtitles ? ["--write-auto-subs"] : []) + ["--sub-langs", languages.isEmpty ? "ko,en" : languages, "--convert-subs", "srt"] + (embedSubtitles ? ["--embed-subs"] : [])
     }
     private func probeStreams(_ file: URL) async throws -> [[String: Any]] {
         let probe = try await execute("ffprobe", ["-v","error","-show_entries","stream=codec_type,codec_name,width,height,r_frame_rate","-of","json",file.path], metadata: true)
@@ -375,7 +391,8 @@ import UserNotifications
         let folder = stage.appendingPathComponent("mp4", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let output = folder.appendingPathComponent(file.deletingPathExtension().lastPathComponent + ".mp4")
-        guard let args = MP4.arguments(input: file.path, output: output.path, ext: file.pathExtension, video: video, audio: audio) else { return file }
+        let hasSubtitles = streams.contains { $0["codec_type"] as? String == "subtitle" }
+        guard let args = MP4.arguments(input: file.path, output: output.path, ext: file.pathExtension, video: video, audio: audio, subtitles: hasSubtitles) else { return file }
         if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = MP4.needsVideoEncode(video) ? "MP4로 변환 중" : "MP4로 옮기는 중" }
         _ = try await execute("ffmpeg", args, metadata: true)
         note(MP4.needsVideoEncode(video) ? "MP4 변환: \(video ?? "") 영상을 H.264로 인코딩했습니다." : "MP4 변환: 영상은 재인코딩 없이 옮겼습니다.")

@@ -240,6 +240,13 @@ struct SettingsView: View {
                 Text("앱으로 돌아올 때 링크가 복사되어 있으면 알려 줍니다. 링크가 있는지만 확인하고, 내용은 ‘붙여넣고 분석’을 누를 때만 읽습니다.").font(.caption).foregroundStyle(.secondary)
             }
             Section("고급") {
+                Toggle("동영상 자막도 받기", isOn: $m.subtitlesEnabled)
+                if m.subtitlesEnabled {
+                    TextField("자막 언어", text: $m.subtitleLanguages, prompt: Text("ko,en"))
+                    Toggle("자동 생성 자막도 받기", isOn: $m.autoSubtitles)
+                    Picker("저장 방식", selection: $m.embedSubtitles) { Text("별도 파일(.srt)").tag(false); Text("영상에 넣기").tag(true) }.pickerStyle(.segmented)
+                }
+                Text("언어 코드를 쉼표로 구분합니다(예: ko,en, 모든 언어는 all). 별도 파일은 영상과 같은 이름의 .srt로, ‘영상에 넣기’는 영상 안의 자막 트랙으로 저장합니다. 사이트에 자막이 없으면 영상만 받습니다.").font(.caption).foregroundStyle(.secondary)
                 Toggle("다운로드 기록 남기기", isOn: $m.keepHistory)
                 HStack {
                     Text("받은 파일의 제목·출처·저장 위치를 이 Mac에만 남겨 다시 넣은 링크에 ‘이전에 받음’을 표시합니다. 기록은 ⌘Y로 볼 수 있습니다.").font(.caption).foregroundStyle(.secondary)

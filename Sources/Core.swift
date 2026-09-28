@@ -72,17 +72,29 @@ enum VideoContainer: String, CaseIterable, Identifiable {
     case mkv = "MKV", mp4 = "MP4"
     var id: String { rawValue }
 }
+/// Subtitle files that yt-dlp writes next to a download (`name.ko.srt`) and the name each takes beside the saved file.
+enum Subtitles {
+    static let extensions: Set<String> = ["srt", "vtt", "ass"]
+    static func isSubtitle(_ file: URL) -> Bool { extensions.contains(file.pathExtension.lowercased()) }
+    /// `name.ko.srt` next to `name.mkv` becomes `saved-name.ko.srt` next to the saved file, keeping the language code.
+    static func target(for subtitle: URL, media: URL, saved: URL) -> URL {
+        let stem = media.deletingPathExtension().lastPathComponent, name = subtitle.lastPathComponent
+        let suffix = name.hasPrefix(stem + ".") ? String(name.dropFirst(stem.count)) : "." + subtitle.pathExtension
+        return saved.deletingLastPathComponent().appendingPathComponent(saved.deletingPathExtension().lastPathComponent + suffix)
+    }
+}
 enum MP4 {
     /// Codecs QuickTime plays from an MP4 as they are; anything else is re-encoded.
     static let copyVideo: Set<String> = ["h264", "hevc", "av1"]
     static let copyAudio: Set<String> = ["aac", "mp3", "alac"]
     static func needsVideoEncode(_ codec: String?) -> Bool { codec.map { !copyVideo.contains($0) } ?? false }
     /// ffmpeg arguments that turn a download into a QuickTime-friendly MP4, or nil when it already is one.
-    static func arguments(input: String, output: String, ext: String, video: String?, audio: String?) -> [String]? {
+    /// `subtitles`: carry text subtitle tracks over as MP4 (mov_text) subtitles.
+    static func arguments(input: String, output: String, ext: String, video: String?, audio: String?, subtitles: Bool = false) -> [String]? {
         let encodeVideo = needsVideoEncode(video), encodeAudio = audio.map { !copyAudio.contains($0) } ?? false
         // HEVC needs the hvc1 tag for QuickTime, which an existing MP4 may lack.
         if ext.lowercased() == "mp4" && !encodeVideo && !encodeAudio && video != "hevc" { return nil }
-        var args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", input, "-map", "0:v:0?", "-map", "0:a:0?"]
+        var args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", input, "-map", "0:v:0?", "-map", "0:a:0?"] + (subtitles ? ["-map", "0:s?", "-c:s", "mov_text"] : [])
         if encodeVideo { args += ["-c:v", "h264_videotoolbox", "-q:v", "65", "-pix_fmt", "yuv420p"] }
         else { args += ["-c:v", "copy"] + (video == "hevc" ? ["-tag:v", "hvc1"] : []) }
         args += encodeAudio ? ["-c:a", "aac_at", "-b:a", "192k"] : ["-c:a", "copy"]

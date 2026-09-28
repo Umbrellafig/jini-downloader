@@ -113,6 +113,12 @@ import Foundation
         print("PASS: external links: scheme query, scheme path, web link, webloc file, unsafe targets ignored")
         print("PASS: web links in pasted text: order, duplicates, non-web schemes")
         print("PASS: combined progress: estimate until all streams start, summed bytes, active speed, finish")
+        let subs = MP4.arguments(input: "a.mkv", output: "b.mp4", ext: "mkv", video: "h264", audio: "aac", subtitles: true)!
+        precondition(subs.contains("0:s?") && subs.contains("mov_text") && !remux.contains("0:s?"))
+        let media = URL(fileURLWithPath: "/stage/Clip [x].mkv"), saved = URL(fileURLWithPath: "/dl/Clip [x] (1).mp4")
+        precondition(Subtitles.target(for: URL(fileURLWithPath: "/stage/Clip [x].ko.srt"), media: media, saved: saved).path == "/dl/Clip [x] (1).ko.srt")
+        precondition(Subtitles.target(for: URL(fileURLWithPath: "/stage/other.srt"), media: media, saved: saved).path == "/dl/Clip [x] (1).srt")
+        precondition(Subtitles.isSubtitle(URL(fileURLWithPath: "a.en.VTT")) && !Subtitles.isSubtitle(media))
         print("PASS: MP4 plan: already fine, remux, HEVC tag, VP9/Opus re-encode, no audio")
         print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")
