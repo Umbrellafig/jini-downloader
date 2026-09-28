@@ -5,6 +5,8 @@ import AppKit
     @Published var input = ""
     @Published var mode: Mode = .auto
     @Published var folder: URL
+    /// Advanced option: write a `.download.txt` record (source page, format, size, time) next to each saved file.
+    @Published var writeRecord = UserDefaults.standard.bool(forKey: "writeDownloadRecord") { didSet { UserDefaults.standard.set(writeRecord, forKey: "writeDownloadRecord") } }
     @Published var items: [MediaItem] = []
     @Published var log = "링크를 넣고 미리보기를 분석하세요."
     @Published var busy = false
@@ -253,8 +255,10 @@ import AppKit
                     for key in items[i].progress.keys { items[i].progress[key]?.finished = true }
                     if item.engine == "direct" { items[i].progress["direct"] = StreamProgress(id: "direct", downloaded: size ?? 0, total: size, speed: nil, eta: nil, finished: true) }
                     if let f = items[i].choices.firstIndex(where: { $0.id == item.formatID }) { items[i].choices[f].size = size; items[i].choices[f].approximate = false }
-                    let receipt = "Jini Downloader 1.2\n이름: \(item.title)\n원본 페이지: \(item.source)\n선택 포맷 ID: \(item.formatID)\n선택 정보: \(item.selectedFormat.detail)\n저장 파일: \(saved.lastPathComponent)\n실제 용량: \(bytes(size))\n저장 시각: \(Date())\n사이트 제공 스트림을 재인코딩 없이 저장했습니다. 업로드 원본 파일과 동일함을 보장하지 않습니다.\n"
-                    try? receipt.write(to: saved.appendingPathExtension("download.txt"), atomically: true, encoding: .utf8)
+                    if writeRecord {
+                        let receipt = "Jini Downloader \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")\n이름: \(item.title)\n원본 페이지: \(item.source)\n선택 포맷 ID: \(item.formatID)\n선택 정보: \(item.selectedFormat.detail)\n저장 파일: \(saved.lastPathComponent)\n실제 용량: \(bytes(size))\n저장 시각: \(Date())\n사이트 제공 스트림을 재인코딩 없이 저장했습니다. 업로드 원본 파일과 동일함을 보장하지 않습니다.\n"
+                        try? receipt.write(to: saved.appendingPathExtension("download.txt"), atomically: true, encoding: .utf8)
+                    }
                     note("저장 완료: \(saved.lastPathComponent) · \(bytes(size))")
                 } catch { items[i].state = Task.isCancelled ? "취소됨" : "실패"; items[i].error = Task.isCancelled ? "" : error.localizedDescription; note(error.localizedDescription) }
                 activeID = nil

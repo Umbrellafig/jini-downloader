@@ -168,6 +168,10 @@ struct SettingsView: View {
                     Button("폴더 열기") { NSWorkspace.shared.open(m.folder) }
                 }
             }
+            Section("고급") {
+                Toggle("다운로드 기록 파일(.download.txt)도 함께 저장", isOn: $m.writeRecord)
+                Text("켜면 받은 파일 옆에 원본 페이지·선택 포맷·용량·저장 시각을 적은 텍스트 파일을 만듭니다. 출처를 남겨야 할 때만 켜세요.").font(.caption).foregroundStyle(.secondary)
+            }
         }.formStyle(.grouped).frame(width: 520).disabled(m.busy)
     }
 }
