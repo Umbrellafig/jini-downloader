@@ -7,6 +7,8 @@ import WebKit
     @Published var status = "페이지를 여는 중…"
     @Published var scanning = false
     @Published var address = ""
+    // Cross-origin iframes (video players, embeds) are invisible to the page script; the model analyzes their URLs separately.
+    private(set) var embeds: [String] = []
     override init() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -70,7 +72,14 @@ import WebKit
         const bg = getComputedStyle(el).backgroundImage;
         for (const match of bg.matchAll(/url\(["']?(.*?)["']?\)/g)) add(match[1], el.getAttribute('aria-label') || '', 0, 0);
       }
-      return {source:location.href, images:out};
+      const frames = [];
+      for (const frame of document.querySelectorAll('iframe[src]')) {
+        try {
+          const u = new URL(frame.src, document.baseURI), r = frame.getBoundingClientRect();
+          if (['http:', 'https:'].includes(u.protocol) && !u.username && !u.password && r.width >= 120 && r.height >= 80 && !frames.includes(u.href) && frames.length < 5) frames.push(u.href);
+        } catch (_) {}
+      }
+      return {source:location.href, images:out, frames};
     })()
     """#
     func scan() async throws -> [MediaItem] {
@@ -79,6 +88,7 @@ import WebKit
         let raw = try await webView.evaluateJavaScript(Self.script)
         guard let result = raw as? [String: Any], let source = result["source"] as? String,
               webURL(source) != nil, let rows = result["images"] as? [[String: Any]] else { throw failure("페이지 이미지 정보를 읽지 못했습니다.") }
+        embeds = (result["frames"] as? [String] ?? []).filter { webURL($0) != nil && $0 != source }
         let items = Self.items(rows, source: source)
         guard !items.isEmpty else { throw failure("로드된 이미지를 찾지 못했습니다. 사이트 확인 화면을 직접 완료하고, 사진이 보이도록 스크롤한 뒤 다시 시도해 주세요.") }
         return items

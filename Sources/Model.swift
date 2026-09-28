@@ -94,6 +94,10 @@ import AppKit
                         status = "\(items.count)개 찾음 · 동영상 품질과 사진 게시물 확인 중"
                         do { appendResults([try await inspectVideo(value)]) }
                         catch { try Task.checkCancellation(); note("동영상: \(error.localizedDescription)") }
+                        for embed in browser.embeds {
+                            do { appendResults([try await inspectVideo(embed)]) }
+                            catch { try Task.checkCancellation(); note("삽입된 동영상: \(error.localizedDescription)") }
+                        }
                         do { appendResults(try await inspectGallery(value)) }
                         catch { try Task.checkCancellation(); note("사진 게시물: \(error.localizedDescription)") }
                     }
