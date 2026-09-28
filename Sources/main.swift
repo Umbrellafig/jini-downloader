@@ -3,6 +3,7 @@ import AppKit
 import ImageIO
 import AVKit
 import UniformTypeIdentifiers
+import QuickLook
 
 struct Thumbnail: View {
     let url: String?
@@ -62,7 +63,7 @@ struct DownloadProgress: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Video and audio streams download one after another; show them as one bar.
-            if let p = StreamProgress.combined(item.progress, streams: item.selectedFormat.streamIDs, estimate: item.selectedFormat.size) {
+            if item.state != "완료", let p = StreamProgress.combined(item.progress, streams: item.selectedFormat.streamIDs, estimate: item.selectedFormat.size) {
                 HStack {
                     Text("다운로드").foregroundStyle(.secondary)
                     Spacer()
@@ -123,7 +124,8 @@ struct MediaRow: View {
                 Toggle("받기", isOn: $item.selected).labelsHidden().toggleStyle(.checkbox).disabled(busy || item.state == "완료").accessibilityLabel("\(item.title) 선택").frame(width: Column.check).opacity(item.state == "완료" ? 0 : 1)
                 Button(action: onPreview) {
                     Thumbnail(url: item.thumbnail, headers: item.headers, kind: item.kind).frame(width: Column.thumb, height: 36).clipShape(RoundedRectangle(cornerRadius: 5))
-                }.buttonStyle(.plain).help("크게 보기").accessibilityLabel("\(item.title) 크게 보기")
+                }.buttonStyle(.plain).help(item.output == nil ? "크게 보기" : "받은 파일 미리보기 · 끌어서 다른 곳에 놓기").accessibilityLabel("\(item.title) 크게 보기")
+                .onDrag { item.output.flatMap { NSItemProvider(contentsOf: $0) } ?? NSItemProvider() }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
                         Text(item.title).font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
@@ -153,7 +155,16 @@ struct MediaRow: View {
             }
             if !item.error.isEmpty { Text(item.error).font(.caption).foregroundStyle(.orange).lineLimit(4).textSelection(.enabled) }
             DownloadProgress(item: item)
-            if let output = item.output { HStack { Label("저장 완료", systemImage: "checkmark.circle.fill").foregroundStyle(.mint); Spacer(); Button("Finder에서 보기") { NSWorkspace.shared.activateFileViewerSelecting([output]) } }.font(.caption) }
+            if let output = item.output {
+                HStack {
+                    // Dragging the saved line hands the file to Finder or another app.
+                    Label("저장 완료 · 끌어서 다른 곳에 놓을 수 있어요", systemImage: "checkmark.circle.fill").foregroundStyle(.mint)
+                        .onDrag { NSItemProvider(contentsOf: output) ?? NSItemProvider() }
+                    Spacer()
+                    Button("미리보기") { onPreview() }.help("Quick Look으로 받은 파일 보기")
+                    Button("Finder에서 보기") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
+                }.font(.caption)
+            }
         }.padding(.horizontal, 10).padding(.vertical, 5).background(item.selected ? Color.mint.opacity(0.07) : Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
@@ -251,10 +262,15 @@ struct ContentView: View {
     @State var kindFilter: MediaKind?
     @State var sort: ColumnSort?
     @State var previewing: MediaItem?
+    @State var quickLook: URL?
     @State var dropping = false
     var found: [MediaItem] { m.items.filter { !$0.inDownloads } }
     var shown: [MediaItem] { found.arranged(kind: kindFilter, sort: sort) }
     var downloads: [MediaItem] { m.items.filter(\.inDownloads).sorted { ($0.queue ?? .max) < ($1.queue ?? .max) } }
+    /// A saved file opens in Quick Look; anything not downloaded yet shows the web preview.
+    func preview(_ item: MediaItem) {
+        if let output = item.output, FileManager.default.fileExists(atPath: output.path) { quickLook = output } else { previewing = item }
+    }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 20) {
@@ -334,7 +350,7 @@ struct ContentView: View {
                         }
                         ForEach(shown) { row in
                             if let i = m.items.firstIndex(where: { $0.id == row.id }) {
-                                MediaRow(item: $m.items[i], busy: m.busy && !m.analyzing, container: m.videoContainer) { previewing = m.items[i] }
+                                MediaRow(item: $m.items[i], busy: m.busy && !m.analyzing, container: m.videoContainer) { preview(m.items[i]) }
                             }
                         }
                         if !m.items.isEmpty && shown.isEmpty { Text(found.isEmpty ? "남은 파일이 없습니다. 아래 다운로드 목록을 확인하세요." : "이 종류의 파일은 없습니다.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 30) }
@@ -367,7 +383,7 @@ struct ContentView: View {
                             LazyVStack(alignment: .leading, spacing: 3) {
                                 ForEach(downloads) { row in
                                     if let i = m.items.firstIndex(where: { $0.id == row.id }) {
-                                        MediaRow(item: $m.items[i], busy: m.busy, container: m.videoContainer) { previewing = m.items[i] }
+                                        MediaRow(item: $m.items[i], busy: m.busy, container: m.videoContainer) { preview(m.items[i]) }
                                     }
                                 }
                             }
@@ -391,6 +407,7 @@ struct ContentView: View {
             }
         }
         .sheet(item: $previewing) { PreviewSheet(item: $0) }
+        .quickLookPreview($quickLook)
         .onAppear { Installation.checkOnce(); Task { await m.checkClipboard() } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await m.checkClipboard() } }
         .onChange(of: m.busy) { busy in if !busy { updates.workFinished() } }
