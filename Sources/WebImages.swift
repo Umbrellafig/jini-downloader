@@ -123,6 +123,7 @@ import WebKit
             let subtitle = row["post"] as? Bool == true ? "열린 게시물" : (row["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "웹페이지 이미지"
             var item = MediaItem(source: source, url: value, title: name, subtitle: subtitle, thumbnail: isVideo ? nil : shown, choices: [choice], formatID: "direct")
             item.selected = false
+            item.featured = row["post"] as? Bool == true
             if row["kind"] as? String == "video" { item.kindHint = .video }
             item.headers = ["Referer": source]
             item.warning = "페이지에 로드된 파일입니다. 상품 원본보다 작은 썸네일일 수 있습니다. 로그인이나 사이트 보호가 필요한 파일은 저장되지 않을 수 있습니다."

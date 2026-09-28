@@ -113,6 +113,8 @@ struct MediaItem: Identifiable {
     var output: URL?
     var progress: [String: StreamProgress] = [:]
     var kindHint: MediaKind?
+    /// The main content of the link: media of an opened post or a photo gallery, as opposed to page decoration.
+    var featured = false
     /// Position in the download section; set when a download run queues the item.
     var queue: Int?
     var selectedFormat: FormatChoice { choices.first { $0.id == formatID } ?? choices[0] }
@@ -140,6 +142,12 @@ extension MediaItem {
     }
 }
 extension Array where Element == MediaItem {
+    /// What instant download takes: every video if any were found, otherwise the featured media; nothing for a plain page.
+    var instantPicks: [MediaItem.ID] {
+        let ready = filter { !$0.inDownloads }
+        let videos = ready.filter { $0.kind == .video }
+        return (videos.isEmpty ? ready.filter(\.featured) : videos).map(\.id)
+    }
     /// Items of one kind (nil: all), sorted by a column (nil: found order). Ties keep the found order.
     func arranged(kind: MediaKind?, sort: ColumnSort?) -> [MediaItem] {
         let shown = filter { kind == nil || $0.kind == kind }

@@ -177,6 +177,8 @@ struct SettingsView: View {
                 }
             }
             Section("일반") {
+                Toggle("분석이 끝나면 바로 받기", isOn: $m.instantDownload)
+                Text("동영상이 있으면 모든 동영상을 가장 좋은 품질로, 없으면 열린 게시물이나 사진 모음의 파일을 바로 받습니다. 페이지 장식 이미지는 받지 않습니다.").font(.caption).foregroundStyle(.secondary)
                 Toggle("클립보드에 링크가 있으면 분석할지 물어보기", isOn: $m.watchClipboard)
                 Text("앱으로 돌아올 때 링크가 복사되어 있으면 알려 줍니다. 링크가 있는지만 확인하고, 내용은 ‘붙여넣고 분석’을 누를 때만 읽습니다.").font(.caption).foregroundStyle(.secondary)
             }
@@ -236,7 +238,7 @@ struct ContentView: View {
                 HStack {
                     Button("붙여넣기") { m.paste() }.disabled(m.busy)
                     Spacer()
-                    Button("분석하기") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
+                    Button(m.instantDownload ? "분석하고 받기" : "분석하기") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
                 }
                 HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); SettingsButton(); Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
                 Divider()

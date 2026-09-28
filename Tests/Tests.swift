@@ -75,6 +75,14 @@ import Foundation
         try PropertyListSerialization.data(fromPropertyList: ["URL": "https://a.com/w"], format: .xml, options: 0).write(to: webloc)
         precondition(externalLinks(webloc) == ["https://a.com/w"]); try? FileManager.default.removeItem(at: webloc)
         precondition(externalLinks(URL(string: "ftp://a.com")!) == [])
+        var pageImage = file("logo", "png", 10), postImage = file("toon", "png", 20); postImage.featured = true
+        let clip = file("clip", "mp4", 30)
+        precondition([pageImage, postImage, clip].instantPicks == [clip.id])
+        precondition([pageImage, postImage].instantPicks == [postImage.id])
+        precondition([pageImage].instantPicks.isEmpty)
+        pageImage.state = "완료"; var doneClip = clip; doneClip.state = "완료"
+        precondition([doneClip, postImage].instantPicks == [postImage.id])
+        print("PASS: instant download picks: videos first, then featured media, never page decoration or started items")
         print("PASS: external links: scheme query, scheme path, web link, webloc file, unsafe targets ignored")
         print("PASS: web links in pasted text: order, duplicates, non-web schemes")
         print("PASS: combined progress: estimate until all streams start, summed bytes, active speed, finish")

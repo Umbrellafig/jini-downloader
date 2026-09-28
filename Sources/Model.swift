@@ -9,6 +9,8 @@ import AppKit
     /// keeps the site's streams untouched in MKV instead.
     @Published var keepOriginalVideo = UserDefaults.standard.bool(forKey: "keepOriginalVideo") { didSet { UserDefaults.standard.set(keepOriginalVideo, forKey: "keepOriginalVideo") } }
     var videoContainer: VideoContainer { keepOriginalVideo ? .mkv : .mp4 }
+    /// After analysis, download the main content right away (see `instantPicks`).
+    @Published var instantDownload = UserDefaults.standard.bool(forKey: "instantDownload") { didSet { UserDefaults.standard.set(instantDownload, forKey: "instantDownload") } }
     /// Offer to analyze a link found on the clipboard when the app comes forward.
     @Published var watchClipboard = UserDefaults.standard.object(forKey: "watchClipboard") as? Bool ?? true { didSet { UserDefaults.standard.set(watchClipboard, forKey: "watchClipboard"); if !watchClipboard { clipboardOffer = false } } }
     @Published var clipboardOffer = false
@@ -184,7 +186,15 @@ import AppKit
             }
             snapshot = sig
             status = cancelled ? "분석 중단 · 찾은 파일은 선택해서 받을 수 있습니다" : "\(items.count)개 파일 · 원하는 항목을 선택하거나 전체 다운로드하세요"
+            // Runs after this task's cleanup has cleared busy, so the download can start.
+            if instantDownload && !cancelled { Task { @MainActor in self.startInstant() } }
         }
+    }
+    private func startInstant() {
+        let picks = Set(items.instantPicks)
+        guard !picks.isEmpty else { status = "\(items.count)개 파일 · 바로 받을 동영상이나 게시물이 없어요. 받을 파일을 골라 주세요"; return }
+        for i in items.indices where !items[i].inDownloads { items[i].selected = picks.contains(items[i].id) }
+        start()
     }
     /// Runs one finder; a failure goes to the log so the other finders' results still count.
     private func attempt(_ label: String, _ work: () async throws -> [MediaItem]) async -> [MediaItem] {
@@ -223,6 +233,7 @@ import AppKit
         var found = try Metadata.gallery(r.output, source: value)
         for i in found.indices {
             found[i].warning = "사진·갤러리 파일은 최대 200개까지 표시합니다. 선택한 URL을 그대로 저장합니다."
+            found[i].featured = true
         }
         return found
     }
