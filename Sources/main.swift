@@ -300,6 +300,7 @@ struct SettingsView: View {
                 }
             }
             Section(L("일반", "General")) {
+                Picker(L("언어", "Language"), selection: $m.language) { ForEach(AppLanguage.allCases) { Text($0.label).tag($0) } }
                 Toggle(L("분석이 끝나면 바로 받기", "Download right after analysis"), isOn: $m.instantDownload)
                 Text(L("동영상이 있으면 모든 동영상을 가장 좋은 품질로, 없으면 열린 게시물이나 사진 모음의 파일을 바로 받습니다. 페이지 장식 이미지는 받지 않습니다.", "Downloads every video at the best quality, or, without videos, the files of an opened post or photo gallery. Page decoration isn't downloaded.")).font(.caption).foregroundStyle(.secondary)
                 Toggle(L("다운로드가 끝나면 알림 보내기", "Notify when downloads finish"), isOn: $m.notifyWhenDone)

@@ -157,6 +157,8 @@ import Foundation
         precondition(m4a.label.hasPrefix("Audio only · M4A") && bytes(nil) == "Size unknown" && FileNaming.dateTitle.label == "Upload date + title")
         uiKorean = true
         precondition(stateLabel("완료") == "완료" && MediaKind.video.label == "동영상")
+        precondition(AppLanguage.korean.isKorean(system: false) && !AppLanguage.english.isKorean(system: true))
+        precondition(AppLanguage.system.isKorean(system: true) && !AppLanguage.system.isKorean(system: false))
         print("PASS: English interface text, state labels, Korean identifiers kept")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")
     }

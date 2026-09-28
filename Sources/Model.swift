@@ -22,6 +22,16 @@ import UserNotifications
     let history = History()
     /// Record finished downloads so later analyses can mark files received before.
     @Published var keepHistory = UserDefaults.standard.object(forKey: "keepHistory") as? Bool ?? true { didSet { UserDefaults.standard.set(keepHistory, forKey: "keepHistory") } }
+    /// Interface language. The window switches at once; the system menus follow the per-app AppleLanguages after a restart.
+    @Published var language = AppLanguage.stored {
+        didSet {
+            UserDefaults.standard.set(language.rawValue, forKey: "appLanguage")
+            if language == .system { UserDefaults.standard.removeObject(forKey: "AppleLanguages") }
+            else { UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages") }
+            uiKorean = language.isKorean()
+            if !busy { status = L("언어를 바꿨습니다. 메뉴는 앱을 다시 열면 바뀝니다.", "Language changed. Menus switch after the app reopens.") }
+        }
+    }
     /// Offer to analyze a link found on the clipboard when the app comes forward.
     @Published var watchClipboard = UserDefaults.standard.object(forKey: "watchClipboard") as? Bool ?? true { didSet { UserDefaults.standard.set(watchClipboard, forKey: "watchClipboard"); if !watchClipboard { clipboardOffer = false } } }
     @Published var clipboardOffer = false

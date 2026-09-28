@@ -1,7 +1,24 @@
 import Foundation
 
-/// Interface language: Korean when the Mac prefers Korean, English otherwise. Tests pin it to Korean.
-nonisolated(unsafe) var uiKorean = Locale.preferredLanguages.first?.lowercased().hasPrefix("ko") ?? true
+/// The interface language chosen in Settings. "Match System" uses Korean when the Mac's first language is Korean,
+/// English otherwise.
+enum AppLanguage: String, CaseIterable, Identifiable {
+    case system, korean = "ko", english = "en"
+    var id: String { rawValue }
+    static var stored: AppLanguage { AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "") ?? .system }
+    /// The Mac's own first language, read from the global domain so a per-app override does not hide it.
+    static var systemPrefersKorean: Bool {
+        let languages = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleLanguages"] as? [String] ?? Locale.preferredLanguages
+        return languages.first?.lowercased().hasPrefix("ko") ?? false
+    }
+    func isKorean(system: Bool = AppLanguage.systemPrefersKorean) -> Bool {
+        switch self { case .korean: true; case .english: false; case .system: system }
+    }
+    /// Each option in its own language, so it can be found whatever the current language is.
+    var label: String { switch self { case .system: L("시스템 설정 따르기", "Match System"); case .korean: "한국어"; case .english: "English" } }
+}
+/// Interface language in effect. Tests pin it to Korean.
+nonisolated(unsafe) var uiKorean = AppLanguage.stored.isKorean()
 /// Text in both languages side by side; interpolated values stay with each sentence.
 func L(_ korean: String, _ english: String) -> String { uiKorean ? korean : english }
 /// Download states are Korean identifiers inside the app; this is how they read on screen.

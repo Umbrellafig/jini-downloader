@@ -231,4 +231,4 @@ bash scripts/package.sh --local
 
 </details>
 
-The app follows the Mac's language: Korean when Korean is preferred, English otherwise.
+The app follows the Mac's language by default (Korean when Korean comes first, English otherwise). Change it in Settings → General → Language (언어). 설정 → 일반 → 언어에서 한국어로 바꿀 수 있어요.
