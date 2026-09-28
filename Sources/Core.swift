@@ -119,6 +119,32 @@ enum Clip {
     /// yt-dlp --download-sections value.
     static func argument(_ clip: (start: Double, end: Double)) -> String { "*\(clip.start)-\(clip.end)" }
 }
+/// How downloaded videos are named. Fields the site does not provide are left out rather than written as "NA".
+enum FileNaming: String, CaseIterable, Identifiable {
+    case titleID = "제목 [ID]", title = "제목", dateTitle = "업로드 날짜 제목", channelTitle = "채널 - 제목"
+    var id: String { rawValue }
+    var template: String {
+        switch self {
+        case .titleID: "%(title).150B [%(id)s].%(ext)s"
+        case .title: "%(title).150B.%(ext)s"
+        case .dateTitle: "%(upload_date>%Y-%m-%d&{} |)s%(title).150B.%(ext)s"
+        case .channelTitle: "%(uploader&{} - |)s%(title).150B.%(ext)s"
+        }
+    }
+    var example: String {
+        switch self {
+        case .titleID: "고양이 영상 [a1B2c3].mp4"
+        case .title: "고양이 영상.mp4"
+        case .dateTitle: "2026-09-28 고양이 영상.mp4"
+        case .channelTitle: "채널이름 - 고양이 영상.mp4"
+        }
+    }
+}
+/// Folder name for saving by site: the page's host without "www.".
+func siteFolder(_ item: MediaItem) -> String {
+    let host = URL(string: item.source)?.host ?? URL(string: item.url)?.host ?? "기타"
+    return safeName(host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)
+}
 enum MP4 {
     /// Codecs QuickTime plays from an MP4 as they are; anything else is re-encoded.
     static let copyVideo: Set<String> = ["h264", "hevc", "av1"]

@@ -17,6 +17,8 @@ import UserNotifications
     @Published var subtitleLanguages = UserDefaults.standard.string(forKey: "subtitleLanguages") ?? "ko,en" { didSet { UserDefaults.standard.set(subtitleLanguages, forKey: "subtitleLanguages") } }
     @Published var autoSubtitles = UserDefaults.standard.bool(forKey: "autoSubtitles") { didSet { UserDefaults.standard.set(autoSubtitles, forKey: "autoSubtitles") } }
     @Published var embedSubtitles = UserDefaults.standard.bool(forKey: "embedSubtitles") { didSet { UserDefaults.standard.set(embedSubtitles, forKey: "embedSubtitles") } }
+    @Published var naming = FileNaming(rawValue: UserDefaults.standard.string(forKey: "fileNaming") ?? "") ?? .titleID { didSet { UserDefaults.standard.set(naming.rawValue, forKey: "fileNaming") } }
+    @Published var folderPerSite = UserDefaults.standard.bool(forKey: "folderPerSite") { didSet { UserDefaults.standard.set(folderPerSite, forKey: "folderPerSite") } }
     let history = History()
     /// Record finished downloads so later analyses can mark files received before.
     @Published var keepHistory = UserDefaults.standard.object(forKey: "keepHistory") as? Bool ?? true { didSet { UserDefaults.standard.set(keepHistory, forKey: "keepHistory") } }
@@ -310,13 +312,14 @@ import UserNotifications
                 items[i].progress = [:]; items[i].error = ""; items[i].state = "연결 중"; activeID = id
                 status = "\(n+1)/\(ids.count) · \(items[i].title)"
                 let item = items[i]
+                let target = folderPerSite ? dest.appendingPathComponent(siteFolder(item), isDirectory: true) : dest
                 do {
                     let stage = dest.appendingPathComponent(".JiniDownloader-" + UUID().uuidString)
                     try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
                     defer { try? FileManager.default.removeItem(at: stage) }
                     let saved: URL
                     if item.engine == "yt-dlp" {
-                        _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate"] + selection(item) + ["-P", stage.path, "-o", "%(title).150B [%(id)s].%(ext)s", "--", item.url], id: id)
+                        _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate"] + selection(item) + ["-P", stage.path, "-o", naming.template, "--", item.url], id: id)
                         items[i].state = "저장 확인 중"
                         let written = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).filter { !["part","ytdl","json"].contains($0.pathExtension) && !$0.lastPathComponent.hasPrefix(".") }
                         let files = written.filter { !Subtitles.isSubtitle($0) }, subtitleFiles = written.filter(Subtitles.isSubtitle)
@@ -333,7 +336,8 @@ import UserNotifications
                         }
                         let cut = item.clip != nil && item.selectedFormat.audioFormat == nil && videoContainer == .mp4 ? try await trimSection(files[0], streams: streams, in: stage) : files[0]
                         let finished = item.selectedFormat.audioFormat == nil ? try await finishVideo(cut, streams: streams, in: stage, id: id) : cut
-                        saved = try moveUnique(finished, to: dest)
+                        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+                        saved = try moveUnique(finished, to: target)
                         // Separate subtitle files follow the saved video's final name, keeping their language code. When they were
                         // embedded, the files are only kept as a fallback if the video ended up without a subtitle track.
                         let embedded = embedSubtitles && streams.contains { $0["codec_type"] as? String == "subtitle" }
@@ -346,7 +350,8 @@ import UserNotifications
                         let downloaded = try await t.download(r, to: stage.appendingPathComponent(safeName(item.title)))
                         try Task.checkCancellation()
                         let file = item.kind == .video && videoContainer == .mp4 ? try await finishVideo(downloaded, streams: try await probeStreams(downloaded), in: stage, id: id) : downloaded
-                        saved = try moveUnique(file, to: dest)
+                        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+                        saved = try moveUnique(file, to: target)
                     }
                     items[i].output = saved; items[i].state = "완료"
                     let size = (try? FileManager.default.attributesOfItem(atPath: saved.path)[.size] as? NSNumber)?.doubleValue

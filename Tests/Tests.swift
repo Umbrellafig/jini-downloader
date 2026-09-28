@@ -134,6 +134,10 @@ import Foundation
         precondition(Clip.format(for: m4a) == ("ba[ext=m4a]/ba", false) && Clip.format(for: mp3).format == "ba[ext=m4a]/ba")
         precondition(Clip.format(for: entries[0].selectedFormat).format.hasPrefix("bv*[ext=mp4]+ba[ext=m4a]"))
         print("PASS: clip ranges: time formats, defaults, validation, yt-dlp section")
+        var fromSite = file("a", "png", 1); fromSite.source = "https://www.youtube.com/watch?v=x"
+        precondition(siteFolder(fromSite) == "youtube.com")
+        fromSite.source = "https://padlet.com/board"; precondition(siteFolder(fromSite) == "padlet.com")
+        precondition(FileNaming.allCases.allSatisfy { $0.template.hasSuffix(".%(ext)s") } && FileNaming.dateTitle.template.contains("&{} |"))
         print("PASS: MP4 plan: already fine, remux, HEVC tag, VP9/Opus re-encode, no audio")
         print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")

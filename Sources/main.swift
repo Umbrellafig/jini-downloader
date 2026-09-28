@@ -277,6 +277,10 @@ struct SettingsView: View {
                 Text("앱으로 돌아올 때 링크가 복사되어 있으면 알려 줍니다. 링크가 있는지만 확인하고, 내용은 ‘붙여넣고 분석’을 누를 때만 읽습니다.").font(.caption).foregroundStyle(.secondary)
             }
             Section("고급") {
+                Picker("동영상 파일 이름", selection: $m.naming) { ForEach(FileNaming.allCases) { Text($0.rawValue).tag($0) } }
+                Text("예: \(m.naming.example) · 사이트가 날짜나 채널을 알려 주지 않으면 그 부분은 빼고 저장합니다.").font(.caption).foregroundStyle(.secondary)
+                Toggle("사이트별 폴더에 나눠 저장", isOn: $m.folderPerSite)
+                Text("켜면 저장 위치 안에 youtube.com처럼 사이트 이름의 폴더를 만들어 나눠 저장합니다.").font(.caption).foregroundStyle(.secondary)
                 Toggle("동영상 자막도 받기", isOn: $m.subtitlesEnabled)
                 if m.subtitlesEnabled {
                     TextField("자막 언어", text: $m.subtitleLanguages, prompt: Text("ko,en"))
