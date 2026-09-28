@@ -71,6 +71,15 @@ bash scripts/package.sh --release
 - `APPLE_TEAM_ID`: 인증서의 Team ID
 - `APPLE_APP_PASSWORD`: 해당 Apple ID의 앱 전용 암호
 
+`SPARKLE_PRIVATE_KEY`까지 7개가 모두 있어야 합니다. 하나라도 없으면 워크플로가 첫 단계에서 빠진 이름을 표시하고 중단합니다. 이 Mac에 이미 있는 인증서·키에서 값을 준비하는 방법:
+
+- `APPLE_CERTIFICATE_BASE64`·`APPLE_CERTIFICATE_PASSWORD`: 키체인 접근 → 로그인 → 내 인증서에서 `Developer ID Application: …`을 선택해 .p12로 보내기(암호 지정) → `base64 -i 파일.p12 | pbcopy`로 복사해 붙여넣고 .p12는 삭제합니다.
+- `DEVELOPER_ID_APPLICATION`·`APPLE_TEAM_ID`: `security find-identity -v -p codesigning`에 표시된 이름과 괄호 안 Team ID입니다.
+- `APPLE_APP_PASSWORD`: account.apple.com → 로그인 및 보안 → 앱 전용 암호에서 새로 만듭니다. 기존 `jini-release` 프로필의 암호는 다시 꺼낼 수 없습니다.
+- `SPARKLE_PRIVATE_KEY`: `.build/Sparkle-2.9.6/bin/generate_keys --account io.github.umbrellafig.jini-downloader -x ~/Desktop/sparkle.key`로 내보낸 내용을 붙여넣고 파일을 삭제합니다. 새 키를 만들지 마세요.
+
+등록 후 실패한 Actions 실행에서 Re-run all jobs를 누르면 같은 버전이 배포됩니다.
+
 일회용 GitHub macOS 러너의 임시 Keychain에 인증서를 설치합니다. 작업이 끝나면 Keychain과 임시 인증서 파일을 제거합니다. Secret을 코드·이슈·채팅에 붙여넣지 마세요.
 
 새 버전을 배포한 뒤 브라우저에서 ZIP을 받아 압축을 풀고 실행해 미확인 개발자 차단이 없는지 확인합니다. 서명이나 공증은 폴더 접근 등 별도의 개인정보 보호 권한까지 없애지는 않습니다.
