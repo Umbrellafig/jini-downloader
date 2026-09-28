@@ -130,8 +130,9 @@ struct MediaRow: View {
                     HStack(spacing: 4) {
                         Text(item.title).font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                         if !item.warning.isEmpty { Image(systemName: "info.circle").font(.caption).foregroundStyle(.secondary).help(item.warning) }
+                        if item.engine == "yt-dlp" && !item.inDownloads { ClipButton(item: $item).disabled(busy) }
                     }
-                    Text([item.subtitle, item.duration != nil ? durationText(item.duration) : ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text([item.subtitle, item.duration != nil ? durationText(item.duration) : "", item.clip.map { "구간 \(durationText($0.start))–\(durationText($0.end))" } ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Text(item.kind.rawValue).font(.caption).foregroundStyle(.secondary).frame(width: Column.kind, alignment: .leading)
                 Text(item.selectedFormat.audioFormat?.uppercased() ?? (item.kind == .video && container == .mp4 ? "MP4" : item.selectedFormat.ext.uppercased())).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(Color.mint.opacity(0.13)).clipShape(Capsule()).frame(width: Column.format, alignment: .leading)
@@ -211,6 +212,42 @@ struct HistoryView: View {
             }
             if history.entries.isEmpty { Text(m.keepHistory ? "아직 받은 파일이 없습니다." : "설정에서 다운로드 기록이 꺼져 있습니다.").font(.caption).foregroundStyle(.secondary) }
         }.padding(16).frame(minWidth: 640, minHeight: 420).preferredColorScheme(.dark)
+    }
+}
+/// Picks a section of a video to download instead of the whole thing.
+struct ClipButton: View {
+    @Binding var item: MediaItem
+    @State private var open = false
+    @State private var start = ""
+    @State private var end = ""
+    @State private var error = ""
+    var body: some View {
+        Button {
+            start = item.clip.map { durationText($0.start) } ?? ""; end = item.clip.map { durationText($0.end) } ?? ""; error = ""; open = true
+        } label: { Image(systemName: item.clip == nil ? "scissors" : "scissors.circle.fill").font(.caption) }
+        .buttonStyle(.plain).foregroundStyle(item.clip == nil ? Color.secondary : Color.mint).help("구간만 받기")
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("구간만 받기").font(.headline)
+                HStack {
+                    TextField("시작", text: $start, prompt: Text("0:00")).frame(width: 90)
+                    Text("–")
+                    TextField("끝", text: $end, prompt: Text(item.duration.map { durationText($0) } ?? "끝")).frame(width: 90)
+                }.textFieldStyle(.roundedBorder).monospacedDigit()
+                Text("비워 두면 처음 또는 끝까지 받습니다\(item.duration.map { " · 영상 길이 \(durationText($0))" } ?? ""). 대부분 다시 인코딩하지 않고 정확히 자르며, 일부 형식(VP9 등)은 자르는 지점만 다시 인코딩합니다.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.orange) }
+                HStack {
+                    Button("전체 받기") { item.clip = nil; open = false }.disabled(item.clip == nil)
+                    Spacer()
+                    Button("적용") {
+                        switch Clip.range(start: start, end: end, duration: item.duration) {
+                        case .success(let range): item.clip = range; open = false
+                        case .failure(let problem): error = problem.localizedDescription
+                        }
+                    }.keyboardShortcut(.defaultAction)
+                }
+            }.padding(14).frame(width: 300)
+        }
     }
 }
 struct SettingsView: View {

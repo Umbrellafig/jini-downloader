@@ -39,7 +39,11 @@ final class EngineRunner: @unchecked Sendable {
                     let p = Process(); p.executableURL = executable; p.arguments = args
                     var env = ProcessInfo.processInfo.environment
                     env["PATH"] = executable.deletingLastPathComponent().path + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-                    env["PYTHONUNBUFFERED"] = "1"; p.environment = env
+                    env["PYTHONUNBUFFERED"] = "1"
+                    // The bundled ffmpeg's OpenSSL has no CA path of its own; point it at the macOS trust bundle so HTTPS
+                    // inputs (section downloads, streams yt-dlp hands to ffmpeg) verify.
+                    if env["SSL_CERT_FILE"] == nil, FileManager.default.fileExists(atPath: "/etc/ssl/cert.pem") { env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem" }
+                    p.environment = env
                     let stdout = Pipe(), stderr = Pipe()
                     p.standardOutput = stdout; p.standardError = stderr; p.standardInput = FileHandle.nullDevice
                     let out = PipeReader(stdout.fileHandleForReading, limit: 32*1024*1024, callback: line)

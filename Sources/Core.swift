@@ -48,6 +48,8 @@ struct FormatChoice: Identifiable {
     var approximate = false
     var streamIDs: [String] = []
     var recommended = false
+    /// Container of the video stream as the site serves it (mp4, webm, …); decides how precisely a section can be cut.
+    var sourceExt = ""
     /// A playlist entry's "best available" choice; the actual format is decided by yt-dlp when downloading.
     var automatic = false
     /// Set for audio-only choices ("m4a" or "mp3"): yt-dlp extracts the best audio stream into this format.
@@ -82,6 +84,40 @@ enum Subtitles {
         let suffix = name.hasPrefix(stem + ".") ? String(name.dropFirst(stem.count)) : "." + subtitle.pathExtension
         return saved.deletingLastPathComponent().appendingPathComponent(saved.deletingPathExtension().lastPathComponent + suffix)
     }
+}
+/// Section downloads for videos.
+enum Clip {
+    /// "75", "1:15" or "0:01:15" as seconds; nil for anything else.
+    static func seconds(_ text: String) -> Double? {
+        let parts = text.trimmingCharacters(in: .whitespaces).split(separator: ":", omittingEmptySubsequences: false)
+        guard (1...3).contains(parts.count) else { return nil }
+        var total = 0.0
+        for (n, part) in parts.enumerated() {
+            guard let value = Double(part), value >= 0, value.isFinite, n == 0 || value < 60 || parts.count == 1 else { return nil }
+            total = total * 60 + value
+        }
+        return total
+    }
+    /// A valid section, or a message saying what is wrong with it.
+    static func range(start: String, end: String, duration: Double?) -> Result<(start: Double, end: Double), NSError> {
+        guard let from = seconds(start.isEmpty ? "0" : start) else { return .failure(failure("시작 시간을 1:20처럼 적어 주세요.")) }
+        guard let to = end.isEmpty ? duration : seconds(end) else { return .failure(failure(end.isEmpty ? "끝 시간을 적어 주세요." : "끝 시간을 1:20처럼 적어 주세요.")) }
+        guard to > from else { return .failure(failure("끝 시간은 시작 시간보다 뒤여야 합니다.")) }
+        if let duration, from >= duration { return .failure(failure("시작 시간이 영상 길이(\(durationText(duration)))보다 깁니다.")) }
+        return .success((from, min(to, duration ?? to)))
+    }
+    /// Formats for a section download. ffmpeg cuts MP4/M4A streams exactly without re-encoding, but WebM streams
+    /// fetched over HTTP start from the beginning; so sections prefer M4A audio, and a WebM video forces keyframes at
+    /// the cuts (re-encoding only then).
+    static func format(for choice: FormatChoice) -> (format: String, forceKeyframes: Bool) {
+        if choice.audioFormat != nil { return ("ba[ext=m4a]/ba", false) }
+        if choice.automatic { return ("bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b", false) }
+        let exact = choice.sourceExt == "mp4"
+        guard choice.streamIDs.count > 1, let video = choice.streamIDs.first else { return (choice.id, !exact) }
+        return exact ? ("\(video)+ba[ext=m4a]/\(choice.id)", false) : (choice.id, true)
+    }
+    /// yt-dlp --download-sections value.
+    static func argument(_ clip: (start: Double, end: Double)) -> String { "*\(clip.start)-\(clip.end)" }
 }
 enum MP4 {
     /// Codecs QuickTime plays from an MP4 as they are; anything else is re-encoded.
@@ -131,6 +167,8 @@ struct MediaItem: Identifiable {
     var kindHint: MediaKind?
     /// The main content of the link: media of an opened post or a photo gallery, as opposed to page decoration.
     var featured = false
+    /// Download only this section of a video, in seconds (start, end).
+    var clip: (start: Double, end: Double)?
     /// When this media was downloaded before, from the download history.
     var downloadedAt: Date?
     /// A video listed from a playlist, shown for picking rather than downloaded all at once.
@@ -232,7 +270,7 @@ enum Metadata {
         let ids = streams.compactMap { $0["format_id"] as? String }
         let sizes = streams.map { number($0, "filesize") ?? number($0, "filesize_approx") }
         let complete = sizes.allSatisfy { ($0 ?? 0) > 0 }
-        return FormatChoice(id: ids.joined(separator: "+"), ext: streams.count > 1 ? "mkv" : (v["ext"] as? String ?? "?"), width: Int(number(v, "width") ?? 0), height: Int(number(v, "height") ?? 0), fps: number(v, "fps") ?? 0, videoCodec: v["vcodec"] as? String ?? "", audioCodec: a?["acodec"] as? String ?? "", dynamicRange: v["dynamic_range"] as? String ?? "", size: complete ? sizes.compactMap { $0 }.reduce(0,+) : nil, approximate: streams.count > 1 || streams.contains { number($0, "filesize") == nil }, streamIDs: ids, recommended: recommended)
+        return FormatChoice(id: ids.joined(separator: "+"), ext: streams.count > 1 ? "mkv" : (v["ext"] as? String ?? "?"), width: Int(number(v, "width") ?? 0), height: Int(number(v, "height") ?? 0), fps: number(v, "fps") ?? 0, videoCodec: v["vcodec"] as? String ?? "", audioCodec: a?["acodec"] as? String ?? "", dynamicRange: v["dynamic_range"] as? String ?? "", size: complete ? sizes.compactMap { $0 }.reduce(0,+) : nil, approximate: streams.count > 1 || streams.contains { number($0, "filesize") == nil }, streamIDs: ids, recommended: recommended, sourceExt: v["ext"] as? String ?? "")
     }
     static func video(_ data: Data, source: String) throws -> MediaItem {
         guard let d = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw failure("동영상 정보를 읽지 못했습니다.") }

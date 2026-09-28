@@ -119,6 +119,21 @@ import Foundation
         precondition(Subtitles.target(for: URL(fileURLWithPath: "/stage/Clip [x].ko.srt"), media: media, saved: saved).path == "/dl/Clip [x] (1).ko.srt")
         precondition(Subtitles.target(for: URL(fileURLWithPath: "/stage/other.srt"), media: media, saved: saved).path == "/dl/Clip [x] (1).srt")
         precondition(Subtitles.isSubtitle(URL(fileURLWithPath: "a.en.VTT")) && !Subtitles.isSubtitle(media))
+        precondition(Clip.seconds("75") == 75 && Clip.seconds("1:15") == 75 && Clip.seconds("0:01:15") == 75 && Clip.seconds("1:75") == nil && Clip.seconds("a") == nil && Clip.seconds("1:2:3:4") == nil)
+        if case .success(let r) = Clip.range(start: "0:10", end: "", duration: 60) { precondition(r.start == 10 && r.end == 60) } else { fatalError() }
+        if case .success(let r) = Clip.range(start: "", end: "2:00", duration: 60) { precondition(r.start == 0 && r.end == 60) } else { fatalError() }
+        if case .success = Clip.range(start: "0:30", end: "0:10", duration: 60) { fatalError("End before start must fail") }
+        if case .success = Clip.range(start: "1:30", end: "", duration: 60) { fatalError("Start past the end must fail") }
+        if case .success = Clip.range(start: "0:10", end: "", duration: nil) { fatalError("Missing end without a known length must fail") }
+        precondition(Clip.argument((5, 12.5)) == "*5.0-12.5")
+        precondition(item.selectedFormat.sourceExt == "mp4")
+        precondition(Clip.format(for: item.selectedFormat) == ("401+ba[ext=m4a]/401+251", false))
+        var webmVideo = item.selectedFormat; webmVideo.sourceExt = "webm"
+        precondition(Clip.format(for: webmVideo) == ("401+251", true))
+        precondition(Clip.format(for: FormatChoice(id: "18", ext: "mp4", streamIDs: ["18"], sourceExt: "mp4")) == ("18", false))
+        precondition(Clip.format(for: m4a) == ("ba[ext=m4a]/ba", false) && Clip.format(for: mp3).format == "ba[ext=m4a]/ba")
+        precondition(Clip.format(for: entries[0].selectedFormat).format.hasPrefix("bv*[ext=mp4]+ba[ext=m4a]"))
+        print("PASS: clip ranges: time formats, defaults, validation, yt-dlp section")
         print("PASS: MP4 plan: already fine, remux, HEVC tag, VP9/Opus re-encode, no audio")
         print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")

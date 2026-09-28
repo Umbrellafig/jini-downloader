@@ -316,7 +316,7 @@ import UserNotifications
                     defer { try? FileManager.default.removeItem(at: stage) }
                     let saved: URL
                     if item.engine == "yt-dlp" {
-                        _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate"] + selection(item.selectedFormat) + ["-P", stage.path, "-o", "%(title).150B [%(id)s].%(ext)s", "--", item.url], id: id)
+                        _ = try await execute("yt-dlp", videoBase + ["--newline", "--progress", "--progress-delta", "0.2", "--progress-template", "download:ODP\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t%(progress.total_bytes_estimate)s\t%(progress.speed)s\t%(progress.eta)s\t%(progress.status)s", "--progress-template", "postprocess:ODPOST\t%(progress.status)s", "--no-simulate"] + selection(item) + ["-P", stage.path, "-o", "%(title).150B [%(id)s].%(ext)s", "--", item.url], id: id)
                         items[i].state = "저장 확인 중"
                         let written = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).filter { !["part","ytdl","json"].contains($0.pathExtension) && !$0.lastPathComponent.hasPrefix(".") }
                         let files = written.filter { !Subtitles.isSubtitle($0) }, subtitleFiles = written.filter(Subtitles.isSubtitle)
@@ -331,7 +331,8 @@ import UserNotifications
                             }
                             note("확인: \(Int(number(v,"width") ?? 0))×\(height) · \(v["codec_name"] as? String ?? "") · \(v["r_frame_rate"] as? String ?? "") fps")
                         }
-                        let finished = item.selectedFormat.audioFormat == nil ? try await finishVideo(files[0], streams: streams, in: stage, id: id) : files[0]
+                        let cut = item.clip != nil && item.selectedFormat.audioFormat == nil && videoContainer == .mp4 ? try await trimSection(files[0], streams: streams, in: stage) : files[0]
+                        let finished = item.selectedFormat.audioFormat == nil ? try await finishVideo(cut, streams: streams, in: stage, id: id) : cut
                         saved = try moveUnique(finished, to: dest)
                         // Separate subtitle files follow the saved video's final name, keeping their language code. When they were
                         // embedded, the files are only kept as a fallback if the video ended up without a subtitle track.
@@ -369,9 +370,19 @@ import UserNotifications
         }
     }
     /// yt-dlp format arguments: merged video+audio into MKV, or the best audio extracted into M4A/MP3.
-    private func selection(_ format: FormatChoice) -> [String] {
-        guard let audio = format.audioFormat else { return ["--merge-output-format", "mkv", "-f", format.id] + subtitleArguments }
-        return ["-f", audio == "m4a" ? "ba[ext=m4a]/ba" : "ba", "-x", "--audio-format", audio, "--audio-quality", "0"]
+    private func selection(_ item: MediaItem) -> [String] {
+        let format = item.selectedFormat
+        var picked = format.audioFormat.map { $0 == "m4a" ? "ba[ext=m4a]/ba" : "ba" } ?? format.id
+        var section: [String] = []
+        if let clip = item.clip {
+            let plan = Clip.format(for: format)
+            picked = plan.format
+            // MKV has no edit list to hide a keyframe lead-in, so the original-format option cuts precisely instead.
+            let precise = plan.forceKeyframes || keepOriginalVideo && format.audioFormat == nil
+            section = ["--download-sections", Clip.argument(clip)] + (precise ? ["--force-keyframes-at-cuts"] : [])
+        }
+        guard let audio = format.audioFormat else { return ["--merge-output-format", "mkv", "-f", picked] + section + subtitleArguments }
+        return ["-f", picked, "-x", "--audio-format", audio, "--audio-quality", "0"] + section
     }
     /// Subtitle options for video downloads: chosen languages as SRT, as files beside the video or embedded in it.
     private var subtitleArguments: [String] {
@@ -380,8 +391,22 @@ import UserNotifications
         return ["--write-subs"] + (autoSubtitles ? ["--write-auto-subs"] : []) + ["--sub-langs", languages.isEmpty ? "ko,en" : languages, "--convert-subs", "srt"] + (embedSubtitles ? ["--embed-subs"] : [])
     }
     private func probeStreams(_ file: URL) async throws -> [[String: Any]] {
-        let probe = try await execute("ffprobe", ["-v","error","-show_entries","stream=codec_type,codec_name,width,height,r_frame_rate","-of","json",file.path], metadata: true)
+        let probe = try await execute("ffprobe", ["-v","error","-show_entries","stream=codec_type,codec_name,width,height,r_frame_rate,start_time","-of","json",file.path], metadata: true)
         return (try JSONSerialization.jsonObject(with: probe.output) as? [String: Any])?["streams"] as? [[String: Any]] ?? []
+    }
+    /// A section cut without re-encoding keeps its video from the keyframe before the start, while the audio starts exactly
+    /// there. A standalone MP4 hides that lead-in with an edit list, but the merged file loses it, so the clip plays from
+    /// the keyframe. Rebuild it as an MP4 starting at the audio: streams are copied and the new edit list trims the lead-in.
+    private func trimSection(_ file: URL, streams: [[String: Any]], in stage: URL) async throws -> URL {
+        func start(_ type: String) -> Double? { streams.first { $0["codec_type"] as? String == type }.flatMap { number($0, "start_time") } }
+        guard let video = start("video"), let audio = start("audio"), audio - video > 0.05 else { return file }
+        let folder = stage.appendingPathComponent("trimmed", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let output = folder.appendingPathComponent(file.deletingPathExtension().lastPathComponent + ".mp4")
+        let subtitles = streams.contains { $0["codec_type"] as? String == "subtitle" } ? ["-map", "0:s?", "-c:s", "mov_text"] : []
+        _ = try await execute("ffmpeg", ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", String(format: "%.3f", audio - video), "-i", file.path, "-map", "0:v:0", "-map", "0:a:0"] + subtitles + ["-c:v", "copy", "-c:a", "copy", "-movflags", "+faststart", output.path], metadata: true)
+        note("구간: 키프레임 앞부분 \(String(format: "%.1f", audio - video))초를 재생 목록에서 잘라냈습니다(재인코딩 없음).")
+        return output
     }
     /// With the MP4 option, turns a finished video into an MP4 QuickTime plays; otherwise returns it unchanged.
     private func finishVideo(_ file: URL, streams: [[String: Any]], in stage: URL, id: UUID) async throws -> URL {
