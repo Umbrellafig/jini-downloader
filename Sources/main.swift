@@ -75,7 +75,7 @@ struct DownloadProgress: View {
                     }
                 }
             }
-            if ["연결 중","영상·음성 병합 중","저장 확인 중","다음 단계 준비 중"].contains(item.state) {
+            if ["연결 중","영상·음성 병합 중","저장 확인 중","다음 단계 준비 중","MP4로 변환 중","MP4로 옮기는 중"].contains(item.state) {
                 HStack { ProgressView().controlSize(.mini); Text(item.state).font(.caption).foregroundStyle(.secondary) }
             }
         }
@@ -115,6 +115,7 @@ struct ColumnHeader: View {
 struct MediaRow: View {
     @Binding var item: MediaItem
     let busy: Bool
+    let container: VideoContainer
     let onPreview: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -131,12 +132,12 @@ struct MediaRow: View {
                     Text([item.subtitle, item.duration != nil ? durationText(item.duration) : ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Text(item.kind.rawValue).font(.caption).foregroundStyle(.secondary).frame(width: Column.kind, alignment: .leading)
-                Text(item.selectedFormat.ext.uppercased()).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(Color.mint.opacity(0.13)).clipShape(Capsule()).frame(width: Column.format, alignment: .leading)
+                Text(item.kind == .video && container == .mp4 ? "MP4" : item.selectedFormat.ext.uppercased()).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(Color.mint.opacity(0.13)).clipShape(Capsule()).frame(width: Column.format, alignment: .leading)
                 Group {
                     if item.engine == "yt-dlp" {
                         Picker("저장 품질", selection: Binding(get: { item.formatID }, set: { item.formatID = $0; item.state = "준비됨"; item.progress = [:]; item.output = nil; item.error = "" })) {
                             ForEach(item.choices) { choice in Text(choice.label).tag(choice.id) }
-                        }.labelsHidden().disabled(busy).help("서버가 제공하는 스트림을 재인코딩 없이 저장합니다")
+                        }.labelsHidden().disabled(busy).help(container == .mp4 ? "받은 뒤 MP4로 저장합니다. H.264·HEVC·AV1 영상은 재인코딩하지 않습니다" : "서버가 제공하는 스트림을 재인코딩 없이 저장합니다")
                     } else {
                         Text(item.selectedFormat.height > 0 ? item.selectedFormat.resolution : "—").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
@@ -167,6 +168,12 @@ struct SettingsView: View {
                     Button("다운로드 폴더로 되돌리기") { m.resetFolder() }.disabled(m.usesDefaultFolder)
                     Button("폴더 열기") { NSWorkspace.shared.open(m.folder) }
                 }
+            }
+            Section("동영상 저장 형식") {
+                Picker("형식", selection: $m.videoContainer) { ForEach(VideoContainer.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
+                Text(m.videoContainer == .mkv
+                     ? "사이트가 주는 영상·음성을 그대로 담아 가장 빠르고 화질 손실이 없습니다. QuickTime 등 일부 앱에서는 열리지 않을 수 있습니다."
+                     : "받은 뒤 MP4로 저장해 QuickTime·사진 앱·아이폰에서 바로 재생됩니다. H.264·HEVC·AV1 영상은 재인코딩 없이 옮기고, VP9 등은 H.264로 변환합니다(시간이 더 걸리고 미세한 화질 차이가 생길 수 있음). 음성은 필요하면 AAC로 바꿉니다.").font(.caption).foregroundStyle(.secondary)
             }
             Section("고급") {
                 Toggle("다운로드 기록 파일(.download.txt)도 함께 저장", isOn: $m.writeRecord)
@@ -255,7 +262,7 @@ struct ContentView: View {
                         }
                         ForEach(shown) { row in
                             if let i = m.items.firstIndex(where: { $0.id == row.id }) {
-                                MediaRow(item: $m.items[i], busy: m.busy && !m.analyzing) { previewing = m.items[i] }
+                                MediaRow(item: $m.items[i], busy: m.busy && !m.analyzing, container: m.videoContainer) { previewing = m.items[i] }
                             }
                         }
                         if !m.items.isEmpty && shown.isEmpty { Text(found.isEmpty ? "남은 파일이 없습니다. 아래 다운로드 목록을 확인하세요." : "이 종류의 파일은 없습니다.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 30) }
@@ -288,7 +295,7 @@ struct ContentView: View {
                             LazyVStack(alignment: .leading, spacing: 3) {
                                 ForEach(downloads) { row in
                                     if let i = m.items.firstIndex(where: { $0.id == row.id }) {
-                                        MediaRow(item: $m.items[i], busy: m.busy) { previewing = m.items[i] }
+                                        MediaRow(item: $m.items[i], busy: m.busy, container: m.videoContainer) { previewing = m.items[i] }
                                     }
                                 }
                             }

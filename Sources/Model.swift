@@ -5,6 +5,8 @@ import AppKit
     @Published var input = ""
     @Published var mode: Mode = .auto
     @Published var folder: URL
+    /// MKV keeps the site's streams untouched; MP4 remuxes (or re-encodes only QuickTime-incompatible codecs) after download.
+    @Published var videoContainer = VideoContainer(rawValue: UserDefaults.standard.string(forKey: "videoContainer") ?? "") ?? .mkv { didSet { UserDefaults.standard.set(videoContainer.rawValue, forKey: "videoContainer") } }
     /// Advanced option: write a `.download.txt` record (source page, format, size, time) next to each saved file.
     @Published var writeRecord = UserDefaults.standard.bool(forKey: "writeDownloadRecord") { didSet { UserDefaults.standard.set(writeRecord, forKey: "writeDownloadRecord") } }
     @Published var items: [MediaItem] = []
@@ -232,8 +234,8 @@ import AppKit
                         items[i].state = "저장 확인 중"
                         let files = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).filter { !["part","ytdl","json"].contains($0.pathExtension) && !$0.lastPathComponent.hasPrefix(".") }
                         guard files.count == 1 else { throw failure("완성 파일을 확인하지 못했습니다. \(files.count)개 결과가 있습니다.") }
-                        let probe = try await execute("ffprobe", ["-v","error","-show_entries","stream=codec_name,width,height,r_frame_rate","-of","json",files[0].path], metadata: true)
-                        if let d = try JSONSerialization.jsonObject(with: probe.output) as? [String: Any], let streams = d["streams"] as? [[String: Any]], let v = streams.first(where: { number($0,"height") != nil }) {
+                        let streams = try await probeStreams(files[0])
+                        if let v = streams.first(where: { $0["codec_type"] as? String == "video" }) {
                             let height = Int(number(v,"height") ?? 0)
                             if item.selectedFormat.height > 0 && height != item.selectedFormat.height { throw failure("선택한 해상도와 결과가 다릅니다 (선택 \(item.selectedFormat.height)p / 결과 \(height)p). 미리보기를 다시 분석해 주세요.") }
                             if let f = items[i].choices.firstIndex(where: { $0.id == item.formatID }) {
@@ -242,13 +244,15 @@ import AppKit
                             }
                             note("확인: \(Int(number(v,"width") ?? 0))×\(height) · \(v["codec_name"] as? String ?? "") · \(v["r_frame_rate"] as? String ?? "") fps")
                         }
-                        saved = try moveUnique(files[0], to: dest)
+                        saved = try moveUnique(try await finishVideo(files[0], streams: streams, in: stage, id: id), to: dest)
                     } else {
                         let t = FileTransfer(); transfer = t
                         t.progress = { [weak self] p in Task { @MainActor [weak self] in self?.update(p, id: id) } }
                         var r = URLRequest(url: webURL(item.url)!); item.headers.forEach { r.setValue($0.value, forHTTPHeaderField: $0.key) }
                         let downloaded = try await t.download(r, to: stage.appendingPathComponent(safeName(item.title)))
-                        try Task.checkCancellation(); saved = try moveUnique(downloaded, to: dest)
+                        try Task.checkCancellation()
+                        let file = item.kind == .video && videoContainer == .mp4 ? try await finishVideo(downloaded, streams: try await probeStreams(downloaded), in: stage, id: id) : downloaded
+                        saved = try moveUnique(file, to: dest)
                     }
                     items[i].output = saved; items[i].state = "완료"
                     let size = (try? FileManager.default.attributesOfItem(atPath: saved.path)[.size] as? NSNumber)?.doubleValue
@@ -266,6 +270,24 @@ import AppKit
             status = cancelled ? "다운로드 취소됨" : "완료 \(ids.filter { id in items.contains { $0.id == id && $0.state == "완료" } }.count) · 실패 \(ids.filter { id in items.contains { $0.id == id && $0.state == "실패" } }.count)"
         }
     }
+    private func probeStreams(_ file: URL) async throws -> [[String: Any]] {
+        let probe = try await execute("ffprobe", ["-v","error","-show_entries","stream=codec_type,codec_name,width,height,r_frame_rate","-of","json",file.path], metadata: true)
+        return (try JSONSerialization.jsonObject(with: probe.output) as? [String: Any])?["streams"] as? [[String: Any]] ?? []
+    }
+    /// With the MP4 option, turns a finished video into an MP4 QuickTime plays; otherwise returns it unchanged.
+    private func finishVideo(_ file: URL, streams: [[String: Any]], in stage: URL, id: UUID) async throws -> URL {
+        guard videoContainer == .mp4 else { return file }
+        let video = streams.first { $0["codec_type"] as? String == "video" }?["codec_name"] as? String
+        let audio = streams.first { $0["codec_type"] as? String == "audio" }?["codec_name"] as? String
+        let folder = stage.appendingPathComponent("mp4", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let output = folder.appendingPathComponent(file.deletingPathExtension().lastPathComponent + ".mp4")
+        guard let args = MP4.arguments(input: file.path, output: output.path, ext: file.pathExtension, video: video, audio: audio) else { return file }
+        if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = MP4.needsVideoEncode(video) ? "MP4로 변환 중" : "MP4로 옮기는 중" }
+        _ = try await execute("ffmpeg", args, metadata: true)
+        note(MP4.needsVideoEncode(video) ? "MP4 변환: \(video ?? "") 영상을 H.264로 인코딩했습니다." : "MP4 변환: 영상은 재인코딩 없이 옮겼습니다.")
+        return output
+    }
     private func moveUnique(_ source: URL, to dest: URL) throws -> URL {
         let name = source.lastPathComponent as NSString; var target = dest.appendingPathComponent(name as String); var n = 1
         while FileManager.default.fileExists(atPath: target.path) { target = dest.appendingPathComponent("\(name.deletingPathExtension) (\(n)).\(name.pathExtension)"); n += 1 }
@@ -278,7 +300,7 @@ import AppKit
         else { note(line) }
     }
     private func update(_ p: StreamProgress, id: UUID) {
-        guard activeID == id, let i = items.firstIndex(where: { $0.id == id }), !["완료","실패","취소됨","저장 확인 중","영상·음성 병합 중"].contains(items[i].state) else { return }
+        guard activeID == id, let i = items.firstIndex(where: { $0.id == id }), !["완료","실패","취소됨","저장 확인 중","영상·음성 병합 중","MP4로 변환 중","MP4로 옮기는 중"].contains(items[i].state) else { return }
         items[i].progress[p.id] = p; items[i].state = p.finished ? "다음 단계 준비 중" : "다운로드 중"
     }
 }

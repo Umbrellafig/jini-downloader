@@ -23,7 +23,8 @@ struct FormatChoice: Identifiable {
     var resolution: String { height > 0 ? "\(width)×\(height)" : "해상도 정보 없음" }
     var quality: String { height > 0 ? "\(height)p" + (fps > 0 ? " · \(Int(fps))fps" : "") : "해상도 정보 없음" }
     var sizeLabel: String { (approximate && size != nil ? "약 " : "") + bytes(size) }
-    var label: String { "\(recommended ? "최고 품질 · " : "")\(quality) · \(ext.uppercased()) · \(videoCodec) · \(sizeLabel)" }
+    /// Quality menu text; the saved file type has its own column, so it is left out here.
+    var label: String { "\(recommended ? "최고 품질 · " : "")\(quality) · \(videoCodec) · \(sizeLabel)" }
     var detail: String { [resolution, fps > 0 ? "\(Int(fps)) fps" : "", videoCodec, audioCodec, dynamicRange].filter { !$0.isEmpty && $0 != "none" && $0 != "NA" }.joined(separator: " · ") }
 }
 enum MediaKind: String, CaseIterable, Identifiable {
@@ -34,6 +35,27 @@ enum MediaKind: String, CaseIterable, Identifiable {
 enum SortColumn: String, CaseIterable, Identifiable {
     case name = "파일명", kind = "종류", format = "포맷", quality = "품질", size = "용량"
     var id: String { rawValue }
+}
+enum VideoContainer: String, CaseIterable, Identifiable {
+    case mkv = "MKV", mp4 = "MP4"
+    var id: String { rawValue }
+}
+enum MP4 {
+    /// Codecs QuickTime plays from an MP4 as they are; anything else is re-encoded.
+    static let copyVideo: Set<String> = ["h264", "hevc", "av1"]
+    static let copyAudio: Set<String> = ["aac", "mp3", "alac"]
+    static func needsVideoEncode(_ codec: String?) -> Bool { codec.map { !copyVideo.contains($0) } ?? false }
+    /// ffmpeg arguments that turn a download into a QuickTime-friendly MP4, or nil when it already is one.
+    static func arguments(input: String, output: String, ext: String, video: String?, audio: String?) -> [String]? {
+        let encodeVideo = needsVideoEncode(video), encodeAudio = audio.map { !copyAudio.contains($0) } ?? false
+        // HEVC needs the hvc1 tag for QuickTime, which an existing MP4 may lack.
+        if ext.lowercased() == "mp4" && !encodeVideo && !encodeAudio && video != "hevc" { return nil }
+        var args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", input, "-map", "0:v:0?", "-map", "0:a:0?"]
+        if encodeVideo { args += ["-c:v", "h264_videotoolbox", "-q:v", "65", "-pix_fmt", "yuv420p"] }
+        else { args += ["-c:v", "copy"] + (video == "hevc" ? ["-tag:v", "hvc1"] : []) }
+        args += encodeAudio ? ["-c:a", "aac_at", "-b:a", "192k"] : ["-c:a", "copy"]
+        return args + ["-movflags", "+faststart", output]
+    }
 }
 struct ColumnSort: Equatable {
     var column: SortColumn

@@ -44,6 +44,16 @@ import Foundation
         precondition(cycle == ColumnSort(column: .size, ascending: true))
         cycle = ColumnSort.next(cycle, clicked: .size); precondition(cycle == ColumnSort(column: .size, ascending: false))
         precondition(ColumnSort.next(cycle, clicked: .size) == nil && ColumnSort.next(cycle, clicked: .name) == ColumnSort(column: .name))
+        precondition(MP4.arguments(input: "a.mp4", output: "b.mp4", ext: "mp4", video: "h264", audio: "aac") == nil)
+        let remux = MP4.arguments(input: "a.mkv", output: "b.mp4", ext: "mkv", video: "av1", audio: "aac")!
+        precondition(remux.contains("copy") && !remux.contains("h264_videotoolbox") && !remux.contains("aac_at") && remux.last == "b.mp4")
+        let hevc = MP4.arguments(input: "a.mp4", output: "b.mp4", ext: "mp4", video: "hevc", audio: "aac")!
+        precondition(hevc.contains("hvc1"))
+        let encode = MP4.arguments(input: "a.mkv", output: "b.mp4", ext: "mkv", video: "vp9", audio: "opus")!
+        precondition(encode.contains("h264_videotoolbox") && encode.contains("aac_at") && encode.contains("yuv420p"))
+        let silent = MP4.arguments(input: "a.webm", output: "b.mp4", ext: "webm", video: "h264", audio: nil)!
+        precondition(!silent.contains("aac_at") && silent.contains("0:a:0?"))
+        print("PASS: MP4 plan: already fine, remux, HEVC tag, VP9/Opus re-encode, no audio")
         print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")
     }
