@@ -1,17 +1,21 @@
 import SwiftUI
 import AppKit
 import ImageIO
+import AVKit
 
 struct Thumbnail: View {
     let url: String?
     var headers: [String: String] = [:]
+    var kind: MediaKind = .image
+    var maxPixel = 160
+    var maxBytes = 4*1024*1024
     @State private var preview: NSImage?
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.05))
+            Rectangle().fill(Color.white.opacity(0.05))
             if let preview { Image(nsImage: preview).resizable().scaledToFit() }
-            else { Image(systemName: "photo.on.rectangle.angled").font(.system(size: 28)).foregroundStyle(.secondary) }
-        }.frame(width: 138, height: 88).clipShape(RoundedRectangle(cornerRadius: 10))
+            else { Image(systemName: kind.symbol).foregroundStyle(.secondary) }
+        }
         .task(id: url) {
             preview = nil
             guard let url, let u = webURL(url) else { return }
@@ -19,13 +23,37 @@ struct Thumbnail: View {
                 var r = URLRequest(url: u); r.timeoutInterval = 15
                 headers.forEach { r.setValue($0.value, forHTTPHeaderField: $0.key) }
                 let (stream, response) = try await URLSession.shared.bytes(for: r)
-                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode), (response.mimeType ?? "").hasPrefix("image/"), response.expectedContentLength <= 4*1024*1024 else { return }
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode), (response.mimeType ?? "").hasPrefix("image/"), response.expectedContentLength <= maxBytes else { return }
                 var data = Data()
-                for try await byte in stream { if Task.isCancelled || data.count >= 4*1024*1024 { return }; data.append(byte) }
-                guard let source = CGImageSourceCreateWithData(data as CFData, nil), let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 400, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return }
+                for try await byte in stream { if Task.isCancelled || data.count >= maxBytes { return }; data.append(byte) }
+                guard let source = CGImageSourceCreateWithData(data as CFData, nil), let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: maxPixel, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return }
                 preview = NSImage(cgImage: image, size: .zero)
             } catch {}
         }
+    }
+}
+/// Large view of one result; opened by clicking a row's thumbnail.
+struct PreviewSheet: View {
+    let item: MediaItem
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Label(item.kind.rawValue, systemImage: item.kind.symbol).font(.caption.bold()).foregroundStyle(.mint)
+                Text(item.title).font(.headline).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                Spacer()
+                Button("닫기") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            Group {
+                if item.kind == .video && item.engine == "direct", let u = webURL(item.url) { VideoPlayer(player: AVPlayer(url: u)) }
+                else { Thumbnail(url: item.thumbnail, headers: item.headers, kind: item.kind, maxPixel: 2000, maxBytes: 30*1024*1024).font(.system(size: 48)) }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity).clipShape(RoundedRectangle(cornerRadius: 8))
+            HStack {
+                Text([item.selectedFormat.ext.uppercased(), item.selectedFormat.sizeLabel, item.engine == "yt-dlp" ? item.selectedFormat.detail : item.selectedFormat.resolution, item.duration != nil ? durationText(item.duration) : ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Spacer()
+                if let u = webURL(item.source) { Link("원본 페이지 열기", destination: u).font(.caption) }
+            }
+        }.padding(18).frame(minWidth: 760, idealWidth: 900, minHeight: 560, idealHeight: 680).preferredColorScheme(.dark)
     }
 }
 struct DownloadProgress: View {
@@ -53,43 +81,67 @@ struct DownloadProgress: View {
         }
     }
 }
-struct MediaCard: View {
+struct MediaRow: View {
     @Binding var item: MediaItem
     let busy: Bool
+    let onPreview: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 14) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
                 Toggle("받기", isOn: $item.selected).labelsHidden().toggleStyle(.checkbox).disabled(busy).accessibilityLabel("\(item.title) 선택")
-                Thumbnail(url: item.thumbnail, headers: item.headers)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(item.title).font(.headline).lineLimit(2).textSelection(.enabled)
-                    Text(item.subtitle + (item.duration != nil ? " · " + durationText(item.duration) : "")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    HStack {
-                        Text(item.selectedFormat.ext.uppercased()).font(.caption.bold()).padding(.horizontal,7).padding(.vertical,3).background(Color.mint.opacity(0.13)).clipShape(Capsule())
-                        Text(item.selectedFormat.sizeLabel).font(.callout.bold()).monospacedDigit()
-                        Spacer()
-                        Text(item.state).font(.caption.bold()).foregroundStyle(item.state == "완료" ? .mint : item.state == "실패" ? .orange : .secondary)
-                    }
-                    if item.engine == "yt-dlp" { Text(item.selectedFormat.detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                Button(action: onPreview) {
+                    Thumbnail(url: item.thumbnail, headers: item.headers, kind: item.kind).frame(width: 52, height: 36).clipShape(RoundedRectangle(cornerRadius: 5))
+                }.buttonStyle(.plain).help("크게 보기").accessibilityLabel("\(item.title) 크게 보기")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title).font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    Text([item.subtitle, item.duration != nil ? durationText(item.duration) : "", item.selectedFormat.height > 0 ? item.selectedFormat.resolution : ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
+                Spacer(minLength: 8)
+                if item.engine == "yt-dlp" {
+                    Picker("저장 품질", selection: Binding(get: { item.formatID }, set: { item.formatID = $0; item.state = "준비됨"; item.progress = [:]; item.output = nil; item.error = "" })) {
+                        ForEach(item.choices) { choice in Text(choice.label).tag(choice.id) }
+                    }.labelsHidden().frame(width: 230).disabled(busy).help("서버가 제공하는 스트림을 재인코딩 없이 저장합니다")
+                }
+                if !item.warning.isEmpty { Image(systemName: "info.circle").foregroundStyle(.secondary).help(item.warning) }
+                Text(item.selectedFormat.ext.uppercased()).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(Color.mint.opacity(0.13)).clipShape(Capsule())
+                Text(item.selectedFormat.sizeLabel).font(.caption.bold()).monospacedDigit().frame(width: 92, alignment: .trailing)
+                Text(item.state).font(.caption2.bold()).foregroundStyle(item.state == "완료" ? .mint : item.state == "실패" ? .orange : .secondary).frame(width: 64, alignment: .trailing)
             }
-            if item.engine == "yt-dlp" {
-                Picker("저장 품질", selection: Binding(get: { item.formatID }, set: { item.formatID = $0; item.state = "준비됨"; item.progress = [:]; item.output = nil; item.error = "" })) {
-                    ForEach(item.choices) { choice in Text(choice.label).tag(choice.id) }
-                }.disabled(busy)
-                Text("선택 포맷: \(item.formatID) · 서버가 제공하는 스트림을 재인코딩 없이 저장").font(.caption2).foregroundStyle(.secondary)
-            }
-            if !item.warning.isEmpty { Text(item.warning).font(.caption).foregroundStyle(.orange).lineLimit(4).textSelection(.enabled) }
-            if !item.error.isEmpty { Text(item.error).font(.caption).foregroundStyle(.orange).lineLimit(6).textSelection(.enabled) }
+            if !item.error.isEmpty { Text(item.error).font(.caption).foregroundStyle(.orange).lineLimit(4).textSelection(.enabled) }
             DownloadProgress(item: item)
             if let output = item.output { HStack { Label("저장 완료", systemImage: "checkmark.circle.fill").foregroundStyle(.mint); Spacer(); Button("Finder에서 보기") { NSWorkspace.shared.activateFileViewerSelecting([output]) } }.font(.caption) }
-        }.padding(16).background(Color.white.opacity(0.045)).clipShape(RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(item.selected ? Color.mint.opacity(0.22) : Color.white.opacity(0.06)))
+        }.padding(.horizontal, 10).padding(.vertical, 6).background(item.selected ? Color.mint.opacity(0.07) : Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+struct SettingsView: View {
+    @ObservedObject var m: Model
+    var body: some View {
+        Form {
+            Section("다운로드 위치") {
+                HStack {
+                    Image(systemName: "folder").foregroundStyle(.mint)
+                    Text(m.folder.path).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    Spacer()
+                    Button("변경…") { m.choose() }
+                }
+                HStack {
+                    Text(m.usesDefaultFolder ? "기본 위치(다운로드 폴더)에 저장합니다." : "지정한 폴더에 저장합니다.").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("다운로드 폴더로 되돌리기") { m.resetFolder() }.disabled(m.usesDefaultFolder)
+                    Button("폴더 열기") { NSWorkspace.shared.open(m.folder) }
+                }
+            }
+        }.formStyle(.grouped).frame(width: 520).disabled(m.busy)
     }
 }
 struct ContentView: View {
     @ObservedObject var m: Model
     @ObservedObject var updates: AppUpdater
     @State var showLog = false
+    @State var kindFilter: MediaKind?
+    @State var order: SizeOrder = .found
+    @State var previewing: MediaItem?
+    var shown: [MediaItem] { m.items.arranged(kind: kindFilter, order: order) }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 20) {
@@ -119,7 +171,7 @@ struct ContentView: View {
                     Spacer()
                     Button("분석하기") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
                 }
-                HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); Button("변경") { m.choose() }.disabled(m.busy); Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
+                HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); Button("설정…") { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }; Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
                 Divider()
                 if !m.enginesReady {
                     VStack(alignment: .leading, spacing: 8) {
@@ -136,17 +188,40 @@ struct ContentView: View {
                 }
                 HStack { if m.busy { ProgressView().controlSize(.small) }; Text(m.status).font(.callout).lineLimit(1); Spacer(); if m.busy { Button("취소", role: .cancel) { m.stop() } } }
                 if m.stale { Text("링크가 변경되었습니다. 분석하기를 다시 눌러 주세요.").font(.caption).foregroundStyle(.orange) }
+                if !m.items.isEmpty {
+                    HStack {
+                        Picker("종류", selection: $kindFilter) {
+                            Text("전체 \(m.items.count)").tag(MediaKind?.none)
+                            ForEach(MediaKind.allCases) { kind in
+                                let n = m.items.filter { $0.kind == kind }.count
+                                if n > 0 || kind != .other { Text("\(kind.rawValue) \(n)").tag(MediaKind?.some(kind)) }
+                            }
+                        }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 360)
+                        Spacer()
+                        Picker("정렬", selection: $order) { ForEach(SizeOrder.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(width: 130)
+                    }
+                }
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: 4) {
                         if m.items.isEmpty && !m.busy {
                             VStack(spacing: 12) { Image(systemName: "rectangle.stack.badge.play").font(.system(size: 44)).foregroundStyle(.mint.opacity(0.6)); Text("다운로드 전에 이름·화질·용량을 확인하세요").font(.headline); Text("분석하기 → 이미지·동영상 확인 → 선택 또는 전체 다운로드").font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity).padding(.vertical, 55)
                         }
-                        ForEach($m.items) { $item in MediaCard(item: $item, busy: m.busy && !m.analyzing) }
+                        ForEach(shown) { row in
+                            if let i = m.items.firstIndex(where: { $0.id == row.id }) {
+                                MediaRow(item: $m.items[i], busy: m.busy && !m.analyzing) { previewing = m.items[i] }
+                            }
+                        }
+                        if !m.items.isEmpty && shown.isEmpty { Text("이 종류의 파일은 없습니다.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 30) }
                         ForEach(Array(m.previewErrors.enumerated()), id: \.offset) { _, e in Text(e).font(.caption).foregroundStyle(.orange).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(Color.orange.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 8)) }
                     }.padding(.vertical, 2)
                 }.frame(minHeight: 210)
                 HStack {
-                    if !m.items.isEmpty { Button("전체 선택") { for i in m.items.indices { m.items[i].selected = true } }.disabled(m.busy); Button("해제") { for i in m.items.indices { m.items[i].selected = false } }.disabled(m.busy) }
+                    if !m.items.isEmpty {
+                        // Selection follows the visible list, so a filtered kind can be picked in one step.
+                        let ids = Set(shown.map(\.id))
+                        Button(kindFilter.map { "\($0.rawValue) 모두 선택" } ?? "전체 선택") { for i in m.items.indices where ids.contains(m.items[i].id) { m.items[i].selected = true } }.disabled(m.busy)
+                        Button("해제") { for i in m.items.indices where ids.contains(m.items[i].id) { m.items[i].selected = false } }.disabled(m.busy)
+                    }
                     Text("\(m.selectedCount)개 · \(m.selectedSize)").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("전체 다운로드") { m.downloadAll() }.disabled(m.busy || m.stale || !m.enginesReady || !m.items.contains { $0.state != "완료" })
@@ -156,6 +231,7 @@ struct ContentView: View {
                 Text("용량은 서버 정보 기준이며 ‘약’은 추정값입니다. 병합 후 크기는 달라질 수 있습니다.").font(.caption2).foregroundStyle(.secondary)
             }.padding(24).frame(minWidth: 690).disabled(updates.sessionActive)
         }.frame(minWidth: 1000, minHeight: 770).preferredColorScheme(.dark)
+        .sheet(item: $previewing) { PreviewSheet(item: $0) }
         .onAppear { Installation.checkOnce() }
         .onChange(of: m.busy) { busy in if !busy { updates.workFinished() } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in m.stop() }
@@ -179,5 +255,6 @@ struct ContentView: View {
                     Button("업데이트 확인…") { updates.check() }.disabled(model.busy || !updates.canCheck)
                 }
             }
+        Settings { SettingsView(m: model) }
     }
 }

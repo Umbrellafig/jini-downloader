@@ -25,6 +25,18 @@ import Foundation
         precondition(safeName("../../photo.jpg") == "photo.jpg")
         var live = d; live["is_live"] = true
         do { _ = try Metadata.video(JSONSerialization.data(withJSONObject:live),source:"https://example.com"); fatalError("Live media must be rejected") } catch {}
+        func file(_ name: String, _ ext: String, _ size: Double?, video: Bool = false) -> MediaItem {
+            var item = MediaItem(source: "https://example.com", url: "https://example.com/" + name, title: name, choices: [FormatChoice(id: "direct", ext: ext, size: size, streamIDs: ["direct"])], formatID: "direct")
+            if video { item.kindHint = .video }
+            return item
+        }
+        let found = [file("a", "png", 10), file("b", "?", nil, video: true), file("c", "jpg", nil), file("d", "mp4", 30), file("e", "webp", 20), file("f", "mp3", 5)]
+        precondition(found.map(\.kind) == [.image, .video, .image, .video, .image, .other])
+        precondition(found.arranged(kind: nil, order: .found).map(\.title) == ["a", "b", "c", "d", "e", "f"])
+        precondition(found.arranged(kind: .image, order: .largest).map(\.title) == ["e", "a", "c"])
+        precondition(found.arranged(kind: nil, order: .smallest).map(\.title) == ["f", "a", "e", "d", "b", "c"])
+        precondition(found.arranged(kind: .video, order: .largest).map(\.title) == ["d", "b"])
+        print("PASS: media kinds, kind filter, size order with unknown sizes last")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")
     }
 }

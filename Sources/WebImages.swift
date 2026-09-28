@@ -103,6 +103,7 @@ import WebKit
             let choice = FormatChoice(id: "direct", ext: known ? ext : "?", width: Int(number(row, "width") ?? 0), height: Int(number(row, "height") ?? 0), streamIDs: ["direct"])
             var item = MediaItem(source: source, url: value, title: name, subtitle: row["title"] as? String ?? "웹페이지 이미지", thumbnail: row["kind"] as? String == "video" ? nil : value, choices: [choice], formatID: "direct")
             item.selected = false
+            if row["kind"] as? String == "video" { item.kindHint = .video }
             item.headers = ["Referer": source]
             item.warning = "페이지에 로드된 파일입니다. 상품 원본보다 작은 썸네일일 수 있습니다. 로그인이나 사이트 보호가 필요한 파일은 저장되지 않을 수 있습니다."
             return item

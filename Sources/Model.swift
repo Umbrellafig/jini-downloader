@@ -37,8 +37,11 @@ import AppKit
         installer = (try? EngineManifest.bundled()).map { EngineInstaller(manifest: $0) }
         enginesReady = installer?.ready ?? false
         if let path = UserDefaults.standard.string(forKey: "saveFolder") { folder = URL(fileURLWithPath: path) }
-        else { folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("JiniDownloader") }
+        else { folder = Self.defaultFolder }
     }
+    static var defaultFolder: URL { FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0] }
+    var usesDefaultFolder: Bool { folder.standardizedFileURL == Self.defaultFolder.standardizedFileURL }
+    func resetFolder() { folder = Self.defaultFolder; UserDefaults.standard.removeObject(forKey: "saveFolder") }
     func installEngines() {
         guard !busy, let installer else { status = "앱의 설치 정보를 읽을 수 없습니다."; return }
         busy = true; installing = true; cancelled = false; installProgress = 0

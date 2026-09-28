@@ -26,6 +26,15 @@ struct FormatChoice: Identifiable {
     var label: String { "\(recommended ? "최고 품질 · " : "")\(quality) · \(ext.uppercased()) · \(videoCodec) · \(sizeLabel)" }
     var detail: String { [resolution, fps > 0 ? "\(Int(fps)) fps" : "", videoCodec, audioCodec, dynamicRange].filter { !$0.isEmpty && $0 != "none" && $0 != "NA" }.joined(separator: " · ") }
 }
+enum MediaKind: String, CaseIterable, Identifiable {
+    case image = "이미지", video = "동영상", other = "기타"
+    var id: String { rawValue }
+    var symbol: String { switch self { case .image: "photo"; case .video: "play.rectangle"; case .other: "doc" } }
+}
+enum SizeOrder: String, CaseIterable, Identifiable {
+    case found = "찾은 순서", largest = "용량 큰 순", smallest = "용량 작은 순"
+    var id: String { rawValue }
+}
 struct MediaItem: Identifiable {
     let id = UUID()
     var source: String
@@ -44,7 +53,30 @@ struct MediaItem: Identifiable {
     var warning = ""
     var output: URL?
     var progress: [String: StreamProgress] = [:]
+    var kindHint: MediaKind?
     var selectedFormat: FormatChoice { choices.first { $0.id == formatID } ?? choices[0] }
+    var kind: MediaKind {
+        if let kindHint { return kindHint }
+        let ext = selectedFormat.ext.lowercased()
+        if engine == "yt-dlp" || ["mp4", "webm", "mov", "m4v", "mkv"].contains(ext) { return .video }
+        if ["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "tiff", "bmp", "svg"].contains(ext) || thumbnail != nil { return .image }
+        return .other
+    }
+}
+extension Array where Element == MediaItem {
+    /// Items of one kind (nil: all) in the chosen order. Unknown sizes always go last; ties keep the found order.
+    func arranged(kind: MediaKind?, order: SizeOrder) -> [MediaItem] {
+        let shown = filter { kind == nil || $0.kind == kind }
+        guard order != .found else { return shown }
+        return shown.enumerated().sorted { a, b in
+            switch (a.element.selectedFormat.size, b.element.selectedFormat.size) {
+            case let (x?, y?) where x != y: return order == .largest ? x > y : x < y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.offset < b.offset
+            }
+        }.map(\.element)
+    }
 }
 struct StreamProgress {
     var id: String
