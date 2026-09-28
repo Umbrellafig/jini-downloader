@@ -7,7 +7,8 @@ import WebKit
     @Published var status = L("페이지를 여는 중…", "Opening the page…")
     @Published var scanning = false
     @Published var address = ""
-    // Cross-origin iframes (video players, embeds) are invisible to the page script; the model analyzes their URLs separately.
+    // Cross-origin iframes (video players, embeds) are invisible to the page script, and a page's declared video address
+    // may never reach the DOM; the model analyzes these URLs separately.
     private(set) var embeds: [String] = []
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -77,9 +78,12 @@ import WebKit
         if (!img.complete || !img.naturalWidth) continue;
         add(img.currentSrc || img.src, img.alt || img.title, img.naturalWidth, img.naturalHeight);
       }
+      // A streaming playlist (HLS/DASH) is not a file to save as is; the video engine analyzes it with the embeds.
+      const declared = [], manifest = raw => /\.(m3u8|mpd)$/i.test((() => { try { return new URL(raw, document.baseURI).pathname; } catch (_) { return ''; } })());
+      const addVideo = (raw, title, width, height) => manifest(raw) ? declared.push(raw) : add(raw, title, width, height, 'video');
       for (const video of scope.querySelectorAll('video')) {
-        add(video.currentSrc || video.src, video.title || '페이지 동영상', video.videoWidth, video.videoHeight, 'video');
-        if (!video.currentSrc) for (const source of video.querySelectorAll('source[src]')) add(source.src, video.title || '페이지 동영상', 0, 0, 'video');
+        addVideo(video.currentSrc || video.src, video.title || '페이지 동영상', video.videoWidth, video.videoHeight);
+        if (!video.currentSrc) for (const source of video.querySelectorAll('source[src]')) addVideo(source.src, video.title || '페이지 동영상', 0, 0);
       }
       // Some product cards display their thumbnail as a CSS background.
       for (const el of Array.from(scope.querySelectorAll('*')).slice(0, 20000)) {
@@ -93,6 +97,24 @@ import WebKit
         try {
           const u = new URL(frame.src, document.baseURI), r = frame.getBoundingClientRect();
           if (['http:', 'https:'].includes(u.protocol) && !u.username && !u.password && r.width >= 120 && r.height >= 80 && !frames.includes(u.href) && frames.length < 5) frames.push(u.href);
+        } catch (_) {}
+      }
+      // Players fed by script (HLS) leave no video address in the DOM; the page's declared video (JSON-LD, og:video)
+      // still names it. Analyzed on its own, it is fetched without this page as Referer, which some hosts refuse.
+      const walk = (node, depth) => {
+        if (!node || typeof node !== 'object' || depth > 4) return;
+        if (Array.isArray(node)) { node.forEach(n => walk(n, depth + 1)); return; }
+        if (/VideoObject/.test([].concat(node['@type'] || []).join(' '))) declared.push(node.contentUrl, node.embedUrl);
+        walk(node['@graph'], depth + 1); walk(node.video, depth + 1);
+      };
+      if (!post) {
+        for (const s of document.querySelectorAll('script[type="application/ld+json"]')) { try { walk(JSON.parse(s.textContent), 0); } catch (_) {} }
+        for (const m of document.querySelectorAll('meta[property="og:video"], meta[property="og:video:url"], meta[property="og:video:secure_url"]')) declared.push(m.content);
+      }
+      for (const raw of declared) {
+        try {
+          const u = new URL(raw, document.baseURI);
+          if (['http:', 'https:'].includes(u.protocol) && !u.username && !u.password && u.href !== location.href && !frames.includes(u.href) && frames.length < 8) frames.push(u.href);
         } catch (_) {}
       }
       return {source:location.href, images:out, frames};

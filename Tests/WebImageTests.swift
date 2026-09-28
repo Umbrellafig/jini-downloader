@@ -61,7 +61,19 @@ import WebKit
                 let posted = scoped["images"] as! [[String: Any]]
                 precondition(posted.map { $0["url"] as? String } == ["https://example.com/post.mp4"] && posted[0]["post"] as? Bool == true)
                 precondition(scoped["frames"] as? [String] == ["https://player.example.com/embed/post"])
-                print("Web images: rendered DOM, relative URL, background, size filter, deduplication, URL safety, embedded players, opened-post scope, selection and headers passed")
+                // A script-fed player: the declared video (JSON-LD, og:video) and an HLS playlist go to the video engine.
+                _ = try await browser.webView.evaluateJavaScript("""
+                    document.querySelectorAll('[role=dialog]').forEach(d => d.remove());
+                    document.head.insertAdjacentHTML('beforeend', '<meta property="og:video" content="https://cdn.example.com/og.mp4"><meta property="og:video:url" content="javascript:alert(1)">');
+                    const ld = document.createElement('script'); ld.type = 'application/ld+json';
+                    ld.textContent = JSON.stringify({'@context': 'https://schema.org', '@graph': [{'@type': 'VideoObject', contentUrl: 'https://cdn.example.com/pl/v.m3u8?tag=1', embedUrl: location.href}]});
+                    document.head.appendChild(ld);
+                    document.body.insertAdjacentHTML('beforeend', '<video src="https://cdn.example.com/live/other.m3u8" preload="none"></video>'); true
+                    """)
+                let declared = try await browser.webView.evaluateJavaScript(WebImages.script) as! [String: Any]
+                precondition((declared["images"] as! [[String: Any]]).allSatisfy { !($0["url"] as! String).contains(".m3u8") })
+                precondition(declared["frames"] as? [String] == ["https://player.example.com/embed/1", "https://cdn.example.com/live/other.m3u8", "https://cdn.example.com/pl/v.m3u8?tag=1", "https://cdn.example.com/og.mp4"])
+                print("Web images: rendered DOM, relative URL, background, size filter, deduplication, URL safety, embedded players, opened-post scope, declared and streaming videos, selection and headers passed")
                 exit(0)
             } catch { print(error); exit(1) }
         }
