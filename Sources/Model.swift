@@ -13,6 +13,9 @@ import UserNotifications
     @Published var notifyWhenDone = UserDefaults.standard.object(forKey: "notifyWhenDone") as? Bool ?? true { didSet { UserDefaults.standard.set(notifyWhenDone, forKey: "notifyWhenDone") } }
     /// After analysis, download the main content right away (see `instantPicks`).
     @Published var instantDownload = UserDefaults.standard.bool(forKey: "instantDownload") { didSet { UserDefaults.standard.set(instantDownload, forKey: "instantDownload") } }
+    let history = History()
+    /// Record finished downloads so later analyses can mark files received before.
+    @Published var keepHistory = UserDefaults.standard.object(forKey: "keepHistory") as? Bool ?? true { didSet { UserDefaults.standard.set(keepHistory, forKey: "keepHistory") } }
     /// Offer to analyze a link found on the clipboard when the app comes forward.
     @Published var watchClipboard = UserDefaults.standard.object(forKey: "watchClipboard") as? Bool ?? true { didSet { UserDefaults.standard.set(watchClipboard, forKey: "watchClipboard"); if !watchClipboard { clipboardOffer = false } } }
     @Published var clipboardOffer = false
@@ -117,6 +120,7 @@ import UserNotifications
         var seen = Set(items.map(\.url))
         for var item in found where seen.insert(item.url).inserted {
             item.selected = false
+            item.downloadedAt = history.lookup(item)?.date
             items.append(item)
         }
     }
@@ -342,6 +346,7 @@ import UserNotifications
                         let receipt = "Jini Downloader \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")\n이름: \(item.title)\n원본 페이지: \(item.source)\n선택 포맷 ID: \(item.formatID)\n선택 정보: \(item.selectedFormat.detail)\n저장 파일: \(saved.lastPathComponent)\n실제 용량: \(bytes(size))\n저장 시각: \(Date())\n사이트 제공 스트림을 재인코딩 없이 저장했습니다. 업로드 원본 파일과 동일함을 보장하지 않습니다.\n"
                         try? receipt.write(to: saved.appendingPathExtension("download.txt"), atomically: true, encoding: .utf8)
                     }
+                    if keepHistory { history.add(items[i], saved: saved, size: size) }
                     note("저장 완료: \(saved.lastPathComponent) · \(bytes(size))")
                 } catch { items[i].state = Task.isCancelled ? "취소됨" : "실패"; items[i].error = Task.isCancelled ? "" : error.localizedDescription; note(error.localizedDescription) }
                 activeID = nil

@@ -143,7 +143,13 @@ struct MediaRow: View {
                     }
                 }.frame(width: Column.quality, alignment: .leading)
                 Text(item.selectedFormat.sizeLabel).font(.caption.bold()).monospacedDigit().lineLimit(1).frame(width: Column.size, alignment: .trailing)
-                Text(item.state).font(.caption2.bold()).foregroundStyle(item.state == "완료" ? .mint : item.state == "실패" ? .orange : .secondary).lineLimit(1).frame(width: Column.state, alignment: .trailing)
+                Group {
+                    if item.state == "준비됨", let at = item.downloadedAt {
+                        Text("이전에 받음").foregroundStyle(.mint.opacity(0.85)).help("\(at.formatted(date: .abbreviated, time: .shortened))에 받은 파일입니다")
+                    } else {
+                        Text(item.state).foregroundStyle(item.state == "완료" ? .mint : item.state == "실패" ? .orange : .secondary)
+                    }
+                }.font(.caption2.bold()).lineLimit(1).frame(width: Column.state, alignment: .trailing)
             }
             if !item.error.isEmpty { Text(item.error).font(.caption).foregroundStyle(.orange).lineLimit(4).textSelection(.enabled) }
             DownloadProgress(item: item)
@@ -151,11 +157,49 @@ struct MediaRow: View {
         }.padding(.horizontal, 10).padding(.vertical, 5).background(item.selected ? Color.mint.opacity(0.07) : Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
+struct HistoryCommand: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View { Button("다운로드 기록") { openWindow(id: "history") }.keyboardShortcut("y") }
+}
 /// Opens the Settings window. `showSettingsWindow:` no longer reaches SwiftUI's Settings scene on macOS 14+, so use SettingsLink.
 struct SettingsButton: View {
     var body: some View {
         if #available(macOS 14, *) { SettingsLink { Text("설정…") } }
         else { Button("설정…") { NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil) } }
+    }
+}
+struct HistoryView: View {
+    @ObservedObject var m: Model
+    @ObservedObject var history: History
+    @State private var query = ""
+    @State private var selection = Set<HistoryEntry.ID>()
+    var shown: [HistoryEntry] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        return q.isEmpty ? history.entries : history.entries.filter { $0.title.localizedCaseInsensitiveContains(q) || $0.source.localizedCaseInsensitiveContains(q) }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                TextField("제목이나 주소로 찾기", text: $query).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
+                Text("\(shown.count)개").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Spacer()
+                Button("선택 항목 지우기") { history.remove(selection); selection = [] }.disabled(selection.isEmpty)
+                Button("기록 모두 지우기", role: .destructive) { history.clear(); selection = [] }.disabled(history.entries.isEmpty)
+            }
+            List(shown, selection: $selection) { entry in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.title).lineLimit(1).truncationMode(.middle)
+                        Text("\(entry.date.formatted(date: .abbreviated, time: .shortened)) · \(entry.format) · \(bytes(entry.size))").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    let file = URL(fileURLWithPath: entry.file)
+                    Button("Finder에서 보기") { NSWorkspace.shared.activateFileViewerSelecting([file]) }.disabled(!FileManager.default.fileExists(atPath: entry.file)).help(FileManager.default.fileExists(atPath: entry.file) ? entry.file : "파일이 옮겨졌거나 지워졌습니다")
+                    Button("다시 분석") { m.receive(links: [entry.source]) }.disabled(webURL(entry.source) == nil)
+                }.font(.callout).padding(.vertical, 2)
+            }
+            if history.entries.isEmpty { Text(m.keepHistory ? "아직 받은 파일이 없습니다." : "설정에서 다운로드 기록이 꺼져 있습니다.").font(.caption).foregroundStyle(.secondary) }
+        }.padding(16).frame(minWidth: 640, minHeight: 420).preferredColorScheme(.dark)
     }
 }
 struct SettingsView: View {
@@ -185,6 +229,12 @@ struct SettingsView: View {
                 Text("앱으로 돌아올 때 링크가 복사되어 있으면 알려 줍니다. 링크가 있는지만 확인하고, 내용은 ‘붙여넣고 분석’을 누를 때만 읽습니다.").font(.caption).foregroundStyle(.secondary)
             }
             Section("고급") {
+                Toggle("다운로드 기록 남기기", isOn: $m.keepHistory)
+                HStack {
+                    Text("받은 파일의 제목·출처·저장 위치를 이 Mac에만 남겨 다시 넣은 링크에 ‘이전에 받음’을 표시합니다. 기록은 ⌘Y로 볼 수 있습니다.").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("기록 지우기") { m.history.clear() }.disabled(m.history.entries.isEmpty)
+                }
                 Toggle("동영상을 원본 형식(MKV)으로 저장", isOn: $m.keepOriginalVideo)
                 Text("기본은 QuickTime·사진 앱·아이폰에서 바로 열리는 MP4입니다. H.264·HEVC·AV1 영상은 재인코딩 없이 옮기고, VP9 등만 H.264로 변환합니다. 켜면 사이트가 주는 영상·음성을 변환 없이 MKV에 담습니다. 화질 손실이 전혀 없지만 일부 앱에서는 열리지 않습니다.").font(.caption).foregroundStyle(.secondary)
                 Toggle("다운로드 기록 파일(.download.txt)도 함께 저장", isOn: $m.writeRecord)
@@ -196,6 +246,7 @@ struct SettingsView: View {
 struct ContentView: View {
     @ObservedObject var m: Model
     @ObservedObject var updates: AppUpdater
+    @Environment(\.openWindow) private var openWindow
     @State var showLog = false
     @State var kindFilter: MediaKind?
     @State var sort: ColumnSort?
@@ -242,7 +293,7 @@ struct ContentView: View {
                     Spacer()
                     Button(m.instantDownload ? "분석하고 받기" : "분석하기") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
                 }
-                HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); SettingsButton(); Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
+                HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); Button("기록") { openWindow(id: "history") }.help("다운로드 기록 (⌘Y)"); SettingsButton(); Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
                 Divider()
                 if !m.enginesReady {
                     VStack(alignment: .leading, spacing: 8) {
@@ -400,7 +451,9 @@ func dropped(_ providers: [NSItemProvider], then deliver: @escaping @MainActor (
                 CommandGroup(after: .appInfo) {
                     Button("업데이트 확인…") { updates.check() }.disabled(model.busy || !updates.canCheck)
                 }
+                CommandGroup(before: .windowList) { HistoryCommand() }
             }
+        Window("다운로드 기록", id: "history") { HistoryView(m: model, history: model.history) }
         Settings { SettingsView(m: model) }
     }
 }

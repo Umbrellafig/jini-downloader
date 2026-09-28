@@ -10,7 +10,7 @@ BUILD_SDK="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
 PLUGINS=()
 XCODE_PLUGINS=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins
 if [[ -f "$XCODE_PLUGINS/libSwiftUIMacros.dylib" ]]; then PLUGINS=(-plugin-path "$XCODE_PLUGINS"); fi
-swiftc ${PLUGINS[@]+"${PLUGINS[@]}"} -F "$SPARKLE" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -sdk "$BUILD_SDK" -parse-as-library -O -target arm64-apple-macosx13.0 -module-cache-path "${TMPDIR:-/tmp}/jini-swift-cache" Sources/Core.swift Sources/Engine.swift Sources/EngineInstaller.swift Sources/Model.swift Sources/Installation.swift Sources/AppUpdater.swift Sources/WebImages.swift Sources/main.swift -o "$APP_PATH/Contents/MacOS/JiniDownloader"
+swiftc ${PLUGINS[@]+"${PLUGINS[@]}"} -F "$SPARKLE" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -sdk "$BUILD_SDK" -parse-as-library -O -target arm64-apple-macosx13.0 -module-cache-path "${TMPDIR:-/tmp}/jini-swift-cache" Sources/Core.swift Sources/Engine.swift Sources/EngineInstaller.swift Sources/Model.swift Sources/Installation.swift Sources/AppUpdater.swift Sources/WebImages.swift Sources/History.swift Sources/main.swift -o "$APP_PATH/Contents/MacOS/JiniDownloader"
 mkdir -p "$APP_PATH/Contents/Frameworks"
 ditto "$SPARKLE/Sparkle.framework" "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 cp "$SPARKLE/LICENSE" "$APP_PATH/Contents/Resources/Sparkle-LICENSE.txt"

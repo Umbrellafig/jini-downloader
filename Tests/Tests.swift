@@ -95,6 +95,21 @@ import Foundation
         pageImage.state = "완료"; var doneClip = clip; doneClip.state = "완료"
         precondition([doneClip, postImage].instantPicks == [postImage.id])
         print("PASS: instant download picks: videos first, then featured media, never page decoration or started items")
+        var signed = file("toon.png", "png", 1); signed.url = "https://cdn.example.com/up/toon.png?expiry_token=abc#x"
+        var resigned = signed; resigned.url = "https://cdn.example.com/up/toon.png?expiry_token=zzz"
+        precondition(historyKey(signed) == "https://cdn.example.com/up/toon.png" && historyKey(signed) == historyKey(resigned))
+        var watch = file("v", "mkv", 1); watch.engine = "yt-dlp"; watch.url = "https://www.youtube.com/watch?v=a"
+        precondition(historyKey(watch) == "https://www.youtube.com/watch?v=a")
+        let store = FileManager.default.temporaryDirectory.appendingPathComponent("jini-history-\(UUID().uuidString).json")
+        MainActor.assumeIsolated {
+            let history = History(url: store)
+            history.add(signed, saved: URL(fileURLWithPath: "/tmp/toon.png"), size: 1)
+            precondition(History(url: store).lookup(resigned)?.title == "toon.png", "History must persist and match re-signed links")
+            precondition(History(url: store).lookup(watch) == nil)
+            history.clear(); precondition(History(url: store).entries.isEmpty)
+        }
+        try? FileManager.default.removeItem(at: store)
+        print("PASS: download history: key ignores link tokens, persists, matches, clears")
         print("PASS: external links: scheme query, scheme path, web link, webloc file, unsafe targets ignored")
         print("PASS: web links in pasted text: order, duplicates, non-web schemes")
         print("PASS: combined progress: estimate until all streams start, summed bytes, active speed, finish")

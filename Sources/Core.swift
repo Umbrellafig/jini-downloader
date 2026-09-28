@@ -119,6 +119,8 @@ struct MediaItem: Identifiable {
     var kindHint: MediaKind?
     /// The main content of the link: media of an opened post or a photo gallery, as opposed to page decoration.
     var featured = false
+    /// When this media was downloaded before, from the download history.
+    var downloadedAt: Date?
     /// A video listed from a playlist, shown for picking rather than downloaded all at once.
     var playlistEntry = false
     /// Position in the download section; set when a download run queues the item.
@@ -146,6 +148,13 @@ extension MediaItem {
         case .size: return selectedFormat.size.map { .number($0) }
         }
     }
+}
+/// Identifies the same media across analyses: a video page as it is, a file link without its query or fragment,
+/// because signed file links change their tokens every time.
+func historyKey(_ item: MediaItem) -> String {
+    guard item.engine == "direct", var parts = URLComponents(string: item.url) else { return item.url }
+    parts.query = nil; parts.fragment = nil
+    return parts.string ?? item.url
 }
 extension Array where Element == MediaItem {
     /// What instant download takes: every video if any were found, otherwise the featured media; nothing for a plain page.
