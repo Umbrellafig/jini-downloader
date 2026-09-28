@@ -1,25 +1,34 @@
 name: Build and release Mac app
 on:
   push:
+    branches: [main]
     tags:
       - 'v*'
 permissions:
   contents: write
+# One queue for main and tag pushes, so the same version is never published twice.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 jobs:
   check-published:
     runs-on: ubuntu-latest
     outputs:
       exists: ${{ steps.release.outputs.exists }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          # A main push publishes the version in Info.plist once; later pushes without a version bump skip.
+          RELEASE_TAG="v$(python3 -c 'import plistlib; print(plistlib.load(open("Resources/Info.plist", "rb"))["CFBundleShortVersionString"])')"
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$RELEASE_TAG" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match app version $RELEASE_TAG"; exit 1
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
@@ -32,9 +41,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Validate tag matches app version
+      - name: Validate release tag matches app version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.check-published.outputs.tag }}
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
           test "$RELEASE_TAG" = "v$VERSION"
@@ -66,13 +75,13 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.check-published.outputs.tag }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo 'This version is already published; existing assets are preserved.'
             exit 0
           fi
-          gh release create "$RELEASE_TAG" dist/JiniDownloader-macOS-arm64.zip dist/JiniDownloader-macOS-arm64.dmg dist/SHA256SUMS.txt dist/appcast.xml --verify-tag --title "Jini Downloader $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+          gh release create "$RELEASE_TAG" dist/JiniDownloader-macOS-arm64.zip dist/JiniDownloader-macOS-arm64.dmg dist/SHA256SUMS.txt dist/appcast.xml --target "$GITHUB_SHA" --title "Jini Downloader $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
       - name: Remove signing credentials
         if: always()
         run: |

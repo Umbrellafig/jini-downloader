@@ -8,21 +8,29 @@ https://github.com/Umbrellafig/jini-downloader/releases/latest/download/JiniDown
 
 정식 릴리스에 같은 이름의 앱 ZIP을 올리면 README의 버튼을 수정하지 않아도 최신 파일로 연결됩니다. Source code ZIP과 앱 ZIP은 별개입니다.
 
+## 버전 규칙
+
+`MAJOR.MINOR.PATCH.BUILD` 형식을 씁니다. 작은 수정은 마지막 BUILD만 올려 1.6.1 → 1.6.1.1 → 1.6.1.2로 촘촘하게 이어갑니다. 기능 묶음이 커지면 PATCH·MINOR를 올리며, 이때 BUILD는 생략합니다(1.6.2, 1.7.0).
+
+```bash
+bash scripts/bump-version.sh          # 1.6.1.1 → 1.6.1.2
+bash scripts/bump-version.sh patch    # 1.6.1.2 → 1.6.2
+bash scripts/bump-version.sh minor    # 1.6.2 → 1.7.0
+```
+
+스크립트는 Sparkle이 비교하는 `CFBundleVersion`도 항상 1 올립니다.
+
 ## 다음 버전 만들기
 
 1. 코드를 수정하고 `bash scripts/test.sh`로 검증합니다.
-2. `Resources/Info.plist`의 `CFBundleShortVersionString`과 `CFBundleVersion`을 올립니다.
-3. 화면의 버전 표시, CHANGELOG.md와 문서의 내용도 맞춥니다.
-4. 로컬 테스트는 `bash scripts/package.sh --local`, 공개용은 아래 인증 설정 후 `bash scripts/package.sh --release`로 빌드합니다. 실제 앱을 테스트합니다.
-5. 변경 사항을 main에 커밋·푸시합니다.
-6. 같은 버전의 태그를 만들어 푸시합니다. 예를 들어 앱 버전이 1.2.1이면:
+2. `bash scripts/bump-version.sh`로 버전을 올립니다.
+3. CHANGELOG.md와 docs/RELEASE_NOTES.md를 새 버전 내용으로 맞춥니다.
+4. 필요하면 `bash scripts/package.sh --local`로 실제 앱을 테스트합니다.
+5. 변경 사항을 커밋하고 main에 푸시합니다.
 
-```bash
-git tag v1.2.1
-git push origin v1.2.1
-```
+main 푸시만으로 GitHub Actions가 Info.plist의 버전을 읽어 `v<버전>` 태그와 정식 Release를 만듭니다. 테스트·Developer ID 서명·Apple 공증·티켓 첨부·Gatekeeper 검증 후 앱 ZIP·DMG·SHA256SUMS.txt·appcast.xml을 올리므로, 설치된 앱은 업데이트 확인에서 바로 새 버전을 받습니다. 버전을 올리지 않은 푸시는 이미 릴리스가 있어 배포를 건너뜁니다. 인증 설정 누락이나 공증 실패 시 배포를 중단합니다. Actions 탭에서 성공 여부를 확인하세요. 이미 같은 태그의 릴리스가 있으면 기존 파일을 덮어쓰지 않습니다. 수정 배포에는 새 버전을 사용하세요.
 
-GitHub Actions가 테스트·Developer ID 서명·Apple 공증·티켓 첨부·Gatekeeper 검증 후 앱 ZIP과 SHA256SUMS.txt를 정식 Release로 공개합니다. 인증 설정 누락이나 공증 실패 시 배포를 중단합니다. Actions 탭에서 성공 여부를 확인하세요. 이미 같은 태그의 릴리스가 있으면 기존 파일을 덮어쓰지 않습니다. 수정 배포에는 새 버전을 사용하세요.
+기존처럼 `git tag v<버전>`을 직접 푸시해도 되며, 태그가 앱 버전과 다르면 배포를 중단합니다.
 
 초기 1.2.0은 로컬에서 검증한 파일을 수동 Release로 올릴 수도 있습니다. 자동화는 후속 버전 태그부터 사용할 수 있습니다.
 
