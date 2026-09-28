@@ -151,6 +151,13 @@ struct MediaRow: View {
         }.padding(.horizontal, 10).padding(.vertical, 5).background(item.selected ? Color.mint.opacity(0.07) : Color.white.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
+/// Opens the Settings window. `showSettingsWindow:` no longer reaches SwiftUI's Settings scene on macOS 14+, so use SettingsLink.
+struct SettingsButton: View {
+    var body: some View {
+        if #available(macOS 14, *) { SettingsLink { Text("설정…") } }
+        else { Button("설정…") { NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil) } }
+    }
+}
 struct SettingsView: View {
     @ObservedObject var m: Model
     var body: some View {
@@ -169,13 +176,9 @@ struct SettingsView: View {
                     Button("폴더 열기") { NSWorkspace.shared.open(m.folder) }
                 }
             }
-            Section("동영상 저장 형식") {
-                Picker("형식", selection: $m.videoContainer) { ForEach(VideoContainer.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
-                Text(m.videoContainer == .mkv
-                     ? "사이트가 주는 영상·음성을 그대로 담아 가장 빠르고 화질 손실이 없습니다. QuickTime 등 일부 앱에서는 열리지 않을 수 있습니다."
-                     : "받은 뒤 MP4로 저장해 QuickTime·사진 앱·아이폰에서 바로 재생됩니다. H.264·HEVC·AV1 영상은 재인코딩 없이 옮기고, VP9 등은 H.264로 변환합니다(시간이 더 걸리고 미세한 화질 차이가 생길 수 있음). 음성은 필요하면 AAC로 바꿉니다.").font(.caption).foregroundStyle(.secondary)
-            }
             Section("고급") {
+                Toggle("동영상을 원본 형식(MKV)으로 저장", isOn: $m.keepOriginalVideo)
+                Text("기본은 QuickTime·사진 앱·아이폰에서 바로 열리는 MP4입니다. H.264·HEVC·AV1 영상은 재인코딩 없이 옮기고, VP9 등만 H.264로 변환합니다. 켜면 사이트가 주는 영상·음성을 변환 없이 MKV에 담습니다. 화질 손실이 전혀 없지만 일부 앱에서는 열리지 않습니다.").font(.caption).foregroundStyle(.secondary)
                 Toggle("다운로드 기록 파일(.download.txt)도 함께 저장", isOn: $m.writeRecord)
                 Text("켜면 받은 파일 옆에 원본 페이지·선택 포맷·용량·저장 시각을 적은 텍스트 파일을 만듭니다. 출처를 남겨야 할 때만 켜세요.").font(.caption).foregroundStyle(.secondary)
             }
@@ -221,7 +224,7 @@ struct ContentView: View {
                     Spacer()
                     Button("분석하기") { m.analyze() }.disabled(m.busy || !m.enginesReady).keyboardShortcut(.return, modifiers: .command)
                 }
-                HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); Button("설정…") { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }; Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
+                HStack { Image(systemName: "folder").foregroundStyle(.mint); Text(m.folder.path).font(.caption).lineLimit(1).truncationMode(.middle); Spacer(); SettingsButton(); Button("폴더 열기") { try? FileManager.default.createDirectory(at: m.folder, withIntermediateDirectories: true); NSWorkspace.shared.open(m.folder) } }
                 Divider()
                 if !m.enginesReady {
                     VStack(alignment: .leading, spacing: 8) {

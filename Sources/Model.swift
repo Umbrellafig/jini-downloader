@@ -5,8 +5,10 @@ import AppKit
     @Published var input = ""
     @Published var mode: Mode = .auto
     @Published var folder: URL
-    /// MKV keeps the site's streams untouched; MP4 remuxes (or re-encodes only QuickTime-incompatible codecs) after download.
-    @Published var videoContainer = VideoContainer(rawValue: UserDefaults.standard.string(forKey: "videoContainer") ?? "") ?? .mkv { didSet { UserDefaults.standard.set(videoContainer.rawValue, forKey: "videoContainer") } }
+    /// Videos are saved as MP4 (remuxed, or re-encoded only for QuickTime-incompatible codecs). The advanced option
+    /// keeps the site's streams untouched in MKV instead.
+    @Published var keepOriginalVideo = UserDefaults.standard.bool(forKey: "keepOriginalVideo") { didSet { UserDefaults.standard.set(keepOriginalVideo, forKey: "keepOriginalVideo") } }
+    var videoContainer: VideoContainer { keepOriginalVideo ? .mkv : .mp4 }
     /// Advanced option: write a `.download.txt` record (source page, format, size, time) next to each saved file.
     @Published var writeRecord = UserDefaults.standard.bool(forKey: "writeDownloadRecord") { didSet { UserDefaults.standard.set(writeRecord, forKey: "writeDownloadRecord") } }
     @Published var items: [MediaItem] = []
