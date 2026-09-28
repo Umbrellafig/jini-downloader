@@ -4,7 +4,7 @@ import WebKit
 // A separate, ephemeral browsing session. It never imports the user's browser cookies.
 @MainActor final class WebImages: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
     let webView: WKWebView
-    @Published var status = "페이지를 여는 중…"
+    @Published var status = L("페이지를 여는 중…", "Opening the page…")
     @Published var scanning = false
     @Published var address = ""
     // Cross-origin iframes (video players, embeds) are invisible to the page script; the model analyzes their URLs separately.
@@ -21,7 +21,7 @@ import WebKit
     func open(_ url: URL) { address = url.absoluteString; webView.load(URLRequest(url: url)) }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         address = webView.url?.absoluteString ?? address
-        status = "상품 사진이 보이도록 스크롤한 뒤 ‘현재 페이지 이미지 가져오기’를 누르세요."
+        status = L("상품 사진이 보이도록 스크롤한 뒤 ‘현재 페이지 이미지 가져오기’를 누르세요.", "Page loaded.")
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { status = error.localizedDescription }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -103,7 +103,7 @@ import WebKit
         defer { scanning = false }
         let raw = try await webView.evaluateJavaScript(Self.script)
         guard let result = raw as? [String: Any], let source = result["source"] as? String,
-              webURL(source) != nil, let rows = result["images"] as? [[String: Any]] else { throw failure("페이지 이미지 정보를 읽지 못했습니다.") }
+              webURL(source) != nil, let rows = result["images"] as? [[String: Any]] else { throw failure(L("페이지 이미지 정보를 읽지 못했습니다.", "Couldn't read the page's images.")) }
         embeds = (result["frames"] as? [String] ?? []).filter { webURL($0) != nil && $0 != source }
         return Self.items(rows, source: source)
     }
@@ -126,13 +126,13 @@ import WebKit
             let known = ["mp4", "webm", "mov", "m4v", "jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "tiff", "bmp", "svg"].contains(ext)
             let name = safeName(url.lastPathComponent.isEmpty ? "image" : url.lastPathComponent)
             let choice = FormatChoice(id: "direct", ext: known ? ext : "?", width: inner == nil ? Int(number(row, "width") ?? 0) : 0, height: inner == nil ? Int(number(row, "height") ?? 0) : 0, streamIDs: ["direct"])
-            let subtitle = row["post"] as? Bool == true ? "열린 게시물" : (row["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "웹페이지 이미지"
+            let subtitle = row["post"] as? Bool == true ? L("열린 게시물", "Opened post") : (row["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? L("웹페이지 이미지", "Page image")
             var item = MediaItem(source: source, url: value, title: name, subtitle: subtitle, thumbnail: isVideo ? nil : shown, choices: [choice], formatID: "direct")
             item.selected = false
             item.featured = row["post"] as? Bool == true
             if row["kind"] as? String == "video" { item.kindHint = .video }
             item.headers = ["Referer": source]
-            item.warning = "페이지에 로드된 파일입니다. 상품 원본보다 작은 썸네일일 수 있습니다. 로그인이나 사이트 보호가 필요한 파일은 저장되지 않을 수 있습니다."
+            item.warning = L("페이지에 로드된 파일입니다. 상품 원본보다 작은 썸네일일 수 있습니다. 로그인이나 사이트 보호가 필요한 파일은 저장되지 않을 수 있습니다.", "A file loaded by the page. It may be a thumbnail smaller than the original, and files behind a login or site protection may not save.")
             return item
         }
     }

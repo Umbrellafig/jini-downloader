@@ -230,3 +230,5 @@ bash scripts/package.sh --local
 | 다운로드 도구 | `~/Library/Application Support/JiniDownloader/Engines` |
 
 </details>
+
+The app follows the Mac's language: Korean when Korean is preferred, English otherwise.

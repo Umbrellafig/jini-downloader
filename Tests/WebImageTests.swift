@@ -3,6 +3,7 @@ import WebKit
 
 @main struct WebImageTests {
     @MainActor static func main() {
+            uiKorean = true
             let rows: [[String: Any]] = [
                 ["url": "https://example.com/a.png", "title": "상품", "width": 640, "height": 480],
                 ["url": "https://example.com/a.png"], ["url": "file:///private/secret"],

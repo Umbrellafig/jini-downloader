@@ -1,10 +1,21 @@
 import Foundation
 
+/// Interface language: Korean when the Mac prefers Korean, English otherwise. Tests pin it to Korean.
+nonisolated(unsafe) var uiKorean = Locale.preferredLanguages.first?.lowercased().hasPrefix("ko") ?? true
+/// Text in both languages side by side; interpolated values stay with each sentence.
+func L(_ korean: String, _ english: String) -> String { uiKorean ? korean : english }
+/// Download states are Korean identifiers inside the app; this is how they read on screen.
+func stateLabel(_ state: String) -> String {
+    guard !uiKorean else { return state }
+    return ["준비됨": "Ready", "대기 중": "Waiting", "연결 중": "Connecting", "다운로드 중": "Downloading", "다음 단계 준비 중": "Preparing next step",
+            "영상·음성 병합 중": "Merging video and audio", "음성 추출 중": "Extracting audio", "저장 확인 중": "Verifying", "MP4로 변환 중": "Converting to MP4",
+            "MP4로 옮기는 중": "Saving as MP4", "완료": "Done", "실패": "Failed", "취소됨": "Cancelled"][state] ?? state
+}
 enum Mode: String, CaseIterable { case auto = "자동", video = "동영상", gallery = "사진 · 갤러리", direct = "파일 직접 링크" }
 func failure(_ message: String) -> NSError { NSError(domain: "JiniDownloader", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
-func bytes(_ value: Double?) -> String { guard let value, value.isFinite, value > 0 else { return "용량 정보 없음" }; return ByteCountFormatter.string(fromByteCount: Int64(min(value, Double(Int64.max / 2))), countStyle: .file) }
+func bytes(_ value: Double?) -> String { guard let value, value.isFinite, value > 0 else { return L("용량 정보 없음", "Size unknown") }; return ByteCountFormatter.string(fromByteCount: Int64(min(value, Double(Int64.max / 2))), countStyle: .file) }
 func number(_ dict: [String: Any], _ key: String) -> Double? { if let n = dict[key] as? NSNumber { return n.doubleValue }; if let s = dict[key] as? String { return Double(s) }; return nil }
-func durationText(_ seconds: Double?) -> String { guard let seconds, seconds.isFinite, seconds >= 0 else { return "시간 정보 없음" }; let n = Int(seconds); return n >= 3600 ? String(format: "%d:%02d:%02d", n/3600, n/60%60, n%60) : String(format: "%d:%02d", n/60, n%60) }
+func durationText(_ seconds: Double?) -> String { guard let seconds, seconds.isFinite, seconds >= 0 else { return L("시간 정보 없음", "Length unknown") }; let n = Int(seconds); return n >= 3600 ? String(format: "%d:%02d:%02d", n/3600, n/60%60, n%60) : String(format: "%d:%02d", n/60, n%60) }
 func safeName(_ value: String) -> String { let s = (value as NSString).lastPathComponent.replacingOccurrences(of: ":", with: "_").replacingOccurrences(of: "\n", with: " "); return s.isEmpty || s == "." || s == ".." ? "download" : String(s.prefix(180)) }
 func webURL(_ value: String) -> URL? { guard let u = URL(string: value), let host = u.host, !host.isEmpty, ["http", "https"].contains(u.scheme?.lowercased() ?? ""), u.user == nil, u.password == nil else { return nil }; return u }
 /// Web links in pasted or dropped text, in order and without duplicates; plain text without links yields none.
@@ -54,21 +65,25 @@ struct FormatChoice: Identifiable {
     var automatic = false
     /// Set for audio-only choices ("m4a" or "mp3"): yt-dlp extracts the best audio stream into this format.
     var audioFormat: String?
-    var resolution: String { height > 0 ? "\(width)×\(height)" : "해상도 정보 없음" }
-    var quality: String { height > 0 ? "\(height)p" + (fps > 0 ? " · \(Int(fps))fps" : "") : "해상도 정보 없음" }
-    var sizeLabel: String { (approximate && size != nil ? "약 " : "") + bytes(size) }
+    var resolution: String { height > 0 ? "\(width)×\(height)" : L("해상도 정보 없음", "Resolution unknown") }
+    var quality: String { height > 0 ? "\(height)p" + (fps > 0 ? " · \(Int(fps))fps" : "") : L("해상도 정보 없음", "Resolution unknown") }
+    var sizeLabel: String { (approximate && size != nil ? L("약 ", "~") : "") + bytes(size) }
     /// Quality menu text; the saved file type has its own column, so it is left out here.
-    var label: String { automatic ? "가장 좋은 품질 · 받을 때 결정" : audioFormat.map { "음성만 · \($0.uppercased()) · \(sizeLabel)" } ?? "\(recommended ? "최고 품질 · " : "")\(quality) · \(videoCodec) · \(sizeLabel)" }
+    var label: String { automatic ? L("가장 좋은 품질 · 받을 때 결정", "Best quality · chosen at download") : audioFormat.map { L("음성만 · \($0.uppercased()) · \(sizeLabel)", "Audio only · \($0.uppercased()) · \(sizeLabel)") } ?? "\(recommended ? "최고 품질 · " : "")\(quality) · \(videoCodec) · \(sizeLabel)" }
     var detail: String { [resolution, fps > 0 ? "\(Int(fps)) fps" : "", videoCodec, audioCodec, dynamicRange].filter { !$0.isEmpty && $0 != "none" && $0 != "NA" }.joined(separator: " · ") }
 }
 enum MediaKind: String, CaseIterable, Identifiable {
     case image = "이미지", video = "동영상", other = "기타"
     var id: String { rawValue }
     var symbol: String { switch self { case .image: "photo"; case .video: "play.rectangle"; case .other: "doc" } }
+    var label: String { switch self { case .image: L("이미지", "Images"); case .video: L("동영상", "Videos"); case .other: L("기타", "Other") } }
+    /// One item's kind, for rows and previews.
+    var single: String { switch self { case .image: L("이미지", "Image"); case .video: L("동영상", "Video"); case .other: L("기타", "Other") } }
 }
 enum SortColumn: String, CaseIterable, Identifiable {
     case name = "파일명", kind = "종류", format = "포맷", quality = "품질", size = "용량"
     var id: String { rawValue }
+    var label: String { switch self { case .name: L("파일명", "Name"); case .kind: L("종류", "Kind"); case .format: L("포맷", "Format"); case .quality: L("품질", "Quality"); case .size: L("용량", "Size") } }
 }
 enum VideoContainer: String, CaseIterable, Identifiable {
     case mkv = "MKV", mp4 = "MP4"
@@ -100,10 +115,10 @@ enum Clip {
     }
     /// A valid section, or a message saying what is wrong with it.
     static func range(start: String, end: String, duration: Double?) -> Result<(start: Double, end: Double), NSError> {
-        guard let from = seconds(start.isEmpty ? "0" : start) else { return .failure(failure("시작 시간을 1:20처럼 적어 주세요.")) }
-        guard let to = end.isEmpty ? duration : seconds(end) else { return .failure(failure(end.isEmpty ? "끝 시간을 적어 주세요." : "끝 시간을 1:20처럼 적어 주세요.")) }
-        guard to > from else { return .failure(failure("끝 시간은 시작 시간보다 뒤여야 합니다.")) }
-        if let duration, from >= duration { return .failure(failure("시작 시간이 영상 길이(\(durationText(duration)))보다 깁니다.")) }
+        guard let from = seconds(start.isEmpty ? "0" : start) else { return .failure(failure(L("시작 시간을 1:20처럼 적어 주세요.", "Enter the start like 1:20."))) }
+        guard let to = end.isEmpty ? duration : seconds(end) else { return .failure(failure(end.isEmpty ? L("끝 시간을 적어 주세요.", "Enter an end time.") : L("끝 시간을 1:20처럼 적어 주세요.", "Enter the end like 1:20."))) }
+        guard to > from else { return .failure(failure(L("끝 시간은 시작 시간보다 뒤여야 합니다.", "The end must come after the start."))) }
+        if let duration, from >= duration { return .failure(failure(L("시작 시간이 영상 길이(\(durationText(duration)))보다 깁니다.", "The start is past the video's length (\(durationText(duration)))."))) }
         return .success((from, min(to, duration ?? to)))
     }
     /// Formats for a section download. ffmpeg cuts MP4/M4A streams exactly without re-encoding, but WebM streams
@@ -123,6 +138,7 @@ enum Clip {
 enum FileNaming: String, CaseIterable, Identifiable {
     case titleID = "제목 [ID]", title = "제목", dateTitle = "업로드 날짜 제목", channelTitle = "채널 - 제목"
     var id: String { rawValue }
+    var label: String { switch self { case .titleID: L("제목 [ID]", "Title [ID]"); case .title: L("제목", "Title"); case .dateTitle: L("업로드 날짜 제목", "Upload date + title"); case .channelTitle: L("채널 - 제목", "Channel - title") } }
     var template: String {
         switch self {
         case .titleID: "%(title).150B [%(id)s].%(ext)s"
@@ -133,10 +149,10 @@ enum FileNaming: String, CaseIterable, Identifiable {
     }
     var example: String {
         switch self {
-        case .titleID: "고양이 영상 [a1B2c3].mp4"
-        case .title: "고양이 영상.mp4"
-        case .dateTitle: "2026-09-28 고양이 영상.mp4"
-        case .channelTitle: "채널이름 - 고양이 영상.mp4"
+        case .titleID: L("고양이 영상 [a1B2c3].mp4", "Cat video [a1B2c3].mp4")
+        case .title: L("고양이 영상.mp4", "Cat video.mp4")
+        case .dateTitle: L("2026-09-28 고양이 영상.mp4", "2026-09-28 Cat video.mp4")
+        case .channelTitle: L("채널이름 - 고양이 영상.mp4", "Channel name - Cat video.mp4")
         }
     }
 }
@@ -323,14 +339,14 @@ enum Metadata {
         return FormatChoice(id: ids.joined(separator: "+"), ext: streams.count > 1 ? "mkv" : (v["ext"] as? String ?? "?"), width: Int(number(v, "width") ?? 0), height: Int(number(v, "height") ?? 0), fps: number(v, "fps") ?? 0, videoCodec: v["vcodec"] as? String ?? "", audioCodec: a?["acodec"] as? String ?? "", dynamicRange: v["dynamic_range"] as? String ?? "", size: complete ? sizes.compactMap { $0 }.reduce(0,+) : nil, approximate: streams.count > 1 || streams.contains { number($0, "filesize") == nil }, streamIDs: ids, recommended: recommended, sourceExt: v["ext"] as? String ?? "")
     }
     static func video(_ data: Data, source: String) throws -> MediaItem {
-        guard let d = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw failure("동영상 정보를 읽지 못했습니다.") }
-        if d["_type"] as? String == "playlist" { throw failure("개별 동영상 링크를 입력해 주세요. 재생목록 미리보기는 지원하지 않습니다.") }
-        if d["is_live"] as? Bool == true { throw failure("진행 중인 라이브 방송은 크기와 완료 시점을 확정할 수 없습니다. 종료된 영상 링크를 사용해 주세요.") }
+        guard let d = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw failure(L("동영상 정보를 읽지 못했습니다.", "Couldn't read the video information.")) }
+        if d["_type"] as? String == "playlist" { throw failure(L("개별 동영상 링크를 입력해 주세요. 재생목록 미리보기는 지원하지 않습니다.", "Enter a link to a single video.")) }
+        if d["is_live"] as? Bool == true { throw failure(L("진행 중인 라이브 방송은 크기와 완료 시점을 확정할 수 없습니다. 종료된 영상 링크를 사용해 주세요.", "A live stream in progress has no final size or end. Use the link after the stream ends.")) }
         let formats = (d["formats"] as? [[String: Any]] ?? []).filter { ($0["has_drm"] as? Bool) != true }
         let requested = d["requested_formats"] as? [[String: Any]] ?? [d]
         var best = choice(requested, recommended: true)
         if best.id.isEmpty { best.id = d["format_id"] as? String ?? ""; best.streamIDs = [best.id] }
-        guard !best.id.isEmpty else { throw failure("저장할 수 있는 포맷을 찾지 못했습니다.") }
+        guard !best.id.isEmpty else { throw failure(L("저장할 수 있는 포맷을 찾지 못했습니다.", "No downloadable format was found.")) }
         let audio = requested.first { ($0["vcodec"] as? String) == "none" && ($0["acodec"] as? String ?? "none") != "none" } ?? formats.last { ($0["vcodec"] as? String) == "none" && ($0["acodec"] as? String ?? "none") != "none" }
         var choices = [best]; var seen = Set([best.id])
         for f in formats.reversed() where (f["vcodec"] as? String ?? "none") != "none" && (number(f, "height") ?? 0) > 0 {
@@ -364,20 +380,20 @@ enum Metadata {
         }
     }
     static func gallery(_ data: Data, source: String) throws -> [MediaItem] {
-        guard let messages = try JSONSerialization.jsonObject(with: data) as? [[Any]] else { throw failure("갤러리 정보를 읽지 못했습니다.") }
+        guard let messages = try JSONSerialization.jsonObject(with: data) as? [[Any]] else { throw failure(L("갤러리 정보를 읽지 못했습니다.", "Couldn't read the gallery information.")) }
         var items: [MediaItem] = []; var seen = Set<String>()
         for m in messages {
             guard m.count >= 3, m[0] as? Int == 3, let url = m[1] as? String, let u = webURL(url), seen.insert(url).inserted, let d = m[2] as? [String: Any] else { continue }
             let ext = d["extension"] as? String ?? u.pathExtension
             let name = d["filename"] as? String ?? u.deletingPathExtension().lastPathComponent
             let c = FormatChoice(id: "direct", ext: ext, width: Int(number(d, "width") ?? 0), height: Int(number(d, "height") ?? 0), size: number(d, "filesize"), streamIDs: ["direct"])
-            var item = MediaItem(source: source, url: url, title: name + (ext.isEmpty ? "" : "." + ext), subtitle: d["title"] as? String ?? "갤러리 파일", thumbnail: d["thumbnail"] as? String, choices: [c], formatID: c.id)
+            var item = MediaItem(source: source, url: url, title: name + (ext.isEmpty ? "" : "." + ext), subtitle: d["title"] as? String ?? L("갤러리 파일", "Gallery file"), thumbnail: d["thumbnail"] as? String, choices: [c], formatID: c.id)
             if item.thumbnail == nil && ["jpg","jpeg","png","webp","gif","avif"].contains(ext.lowercased()) { item.thumbnail = url }
             item.headers = d["_http_headers"] as? [String: String] ?? [:]
             if item.headers["Referer"] == nil { item.headers["Referer"] = source }
             items.append(item)
         }
-        guard !items.isEmpty else { throw failure("미리보기 가능한 갤러리 파일이 없습니다. 개별 게시물 링크를 사용해 주세요.") }
+        guard !items.isEmpty else { throw failure(L("미리보기 가능한 갤러리 파일이 없습니다. 개별 게시물 링크를 사용해 주세요.", "No gallery files to preview. Use a link to a single post.")) }
         return Array(items.prefix(200))
     }
 }

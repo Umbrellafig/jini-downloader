@@ -29,10 +29,10 @@ import UserNotifications
     /// Advanced option: write a `.download.txt` record (source page, format, size, time) next to each saved file.
     @Published var writeRecord = UserDefaults.standard.bool(forKey: "writeDownloadRecord") { didSet { UserDefaults.standard.set(writeRecord, forKey: "writeDownloadRecord") } }
     @Published var items: [MediaItem] = []
-    @Published var log = "링크를 넣고 미리보기를 분석하세요."
+    @Published var log = L("링크를 넣고 미리보기를 분석하세요.", "Enter links and analyze them.")
     @Published var busy = false
     @Published var analyzing = false
-    @Published var status = "다운로드 전에 받을 파일을 확인하세요"
+    @Published var status = L("다운로드 전에 받을 파일을 확인하세요", "Check the files before downloading")
     @Published var previewErrors: [String] = []
     @Published var enginesReady = false
     @Published var installing = false
@@ -53,8 +53,8 @@ import UserNotifications
     var selectedSize: String {
         let selected = items.filter { $0.selected && $0.state != "완료" }
         let known = selected.compactMap { $0.selectedFormat.size }.reduce(0,+)
-        if known == 0 { return "총 용량 정보 없음" }
-        return "약 \(bytes(known))" + (selected.contains { $0.selectedFormat.size == nil } ? " + 용량 미상 파일" : "")
+        if known == 0 { return L("총 용량 정보 없음", "Total size unknown") }
+        return L("약 \(bytes(known))", "~\(bytes(known))") + (selected.contains { $0.selectedFormat.size == nil } ? L(" + 용량 미상 파일", " + files of unknown size") : "")
     }
     init() {
         installer = (try? EngineManifest.bundled()).map { EngineInstaller(manifest: $0) }
@@ -69,7 +69,7 @@ import UserNotifications
     var usesDefaultFolder: Bool { folder.standardizedFileURL == Self.defaultFolder.standardizedFileURL }
     func resetFolder() { folder = Self.defaultFolder; UserDefaults.standard.removeObject(forKey: "saveFolder") }
     func installEngines() {
-        guard !busy, let installer else { status = "앱의 설치 정보를 읽을 수 없습니다."; return }
+        guard !busy, let installer else { status = L("앱의 설치 정보를 읽을 수 없습니다.", "Couldn't read the app's install information."); return }
         busy = true; installing = true; cancelled = false; installProgress = 0
         task = Task {
             defer { busy = false; installing = false; task = nil }
@@ -77,8 +77,8 @@ import UserNotifications
                 try await installer.install { [weak self] message, fraction in
                     Task { @MainActor [weak self] in self?.status = message; self?.installProgress = fraction }
                 }
-                enginesReady = installer.ready; status = "설치 완료 · 미리보기를 분석할 수 있습니다"
-            } catch { status = Task.isCancelled ? "설치를 취소했습니다" : "설치 실패 · 상세 로그를 확인하고 다시 시도해 주세요"; note(error.localizedDescription) }
+                enginesReady = installer.ready; status = L("설치 완료 · 미리보기를 분석할 수 있습니다", "Installed · ready to analyze")
+            } catch { status = Task.isCancelled ? L("설치를 취소했습니다", "Installation cancelled") : L("설치 실패 · 상세 로그를 확인하고 다시 시도해 주세요", "Installation failed · check the log and try again"); note(error.localizedDescription) }
         }
     }
     /// Checks only whether the clipboard holds a link, which macOS allows without a paste alert; the contents are read
@@ -100,7 +100,7 @@ import UserNotifications
         if busy {
             let existing = input.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
             input = (existing.filter { !$0.isEmpty } + links.filter { !existing.contains($0) }).joined(separator: "\n")
-            status = "링크를 추가했습니다 · 지금 작업이 끝나면 분석하기를 눌러 주세요"
+            status = L("링크를 추가했습니다 · 지금 작업이 끝나면 분석하기를 눌러 주세요", "Link added · press Analyze when the current job finishes")
         } else {
             input = links.joined(separator: "\n")
             if enginesReady { analyze() }
@@ -120,7 +120,7 @@ import UserNotifications
     func findInBrowser() {
         guard !busy, let session = browser, let page = session.webView.url, webURL(page.absoluteString) != nil else { return }
         busy = true; analyzing = true; cancelled = false; snapshot = signature
-        status = "지금 화면에서 이미지와 동영상 찾는 중"
+        status = L("지금 화면에서 이미지와 동영상 찾는 중", "Finding images and videos on this screen")
         task = Task {
             defer { busy = false; analyzing = false; task = nil; runner = nil }
             let before = items.count
@@ -139,14 +139,14 @@ import UserNotifications
             appendResults(videos)
             let added = items.suffix(items.count - before)
             await probeDirect(added.filter { $0.engine == "direct" }.map(\.id))
-            status = added.isEmpty ? "이 화면에서 받을 파일을 찾지 못했어요. 사진·영상이 보이도록 스크롤한 뒤 다시 찾아 주세요" : "\(added.count)개 추가 · 목록에서 골라 받으세요"
+            status = added.isEmpty ? L("이 화면에서 받을 파일을 찾지 못했어요. 사진·영상이 보이도록 스크롤한 뒤 다시 찾아 주세요", "Nothing to download on this screen. Scroll until the photos or videos show, then find again") : L("\(added.count)개 추가 · 목록에서 골라 받으세요", "\(added.count) added · choose from the list")
         }
     }
     private func writeCookies(_ cookies: [HTTPCookie]) throws -> URL {
         let fm = FileManager.default
         try fm.createDirectory(at: Self.cookieFolder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let file = Self.cookieFolder.appendingPathComponent(UUID().uuidString + ".txt")
-        guard fm.createFile(atPath: file.path, contents: Data(Cookies.netscape(cookies).utf8), attributes: [.posixPermissions: 0o600]) else { throw failure("로그인 정보를 임시로 저장하지 못했습니다.") }
+        guard fm.createFile(atPath: file.path, contents: Data(Cookies.netscape(cookies).utf8), attributes: [.posixPermissions: 0o600]) else { throw failure(L("로그인 정보를 임시로 저장하지 못했습니다.", "Couldn't keep the login temporarily.")) }
         return file
     }
     /// Browser cookies are never kept: drop the session's temporary cookie files.
@@ -165,7 +165,7 @@ import UserNotifications
     }
     func note(_ s: String) { guard !s.isEmpty else { return }; log += "\n" + s; if log.count > 36000 { log = String(log.suffix(28000)) } }
     func choose() { let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.directoryURL = folder; if p.runModal() == .OK, let u = p.url { folder = u; UserDefaults.standard.set(u.path, forKey: "saveFolder") } }
-    func stop() { cancelled = true; task?.cancel(); runner?.cancel(); transfer?.cancel(); status = "취소 중…" }
+    func stop() { cancelled = true; task?.cancel(); runner?.cancel(); transfer?.cancel(); status = L("취소 중…", "Cancelling…") }
     func invalidateSelection(_ id: UUID) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].state = "준비됨"; items[i].error = ""; items[i].progress = [:]; items[i].output = nil; items[i].queue = nil } }
     func clearFinished() { items.removeAll { $0.state == "완료" } }
     func appendResults(_ found: [MediaItem]) {
@@ -182,13 +182,13 @@ import UserNotifications
         start()
     }
     func analyze() {
-        guard !busy, enginesReady else { status = "먼저 필수 도구를 설치해 주세요"; return }
+        guard !busy, enginesReady else { status = L("먼저 필수 도구를 설치해 주세요", "Install the required tools first"); return }
         let values = input.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        guard !values.isEmpty, values.allSatisfy({ webURL($0) != nil }) else { status = "http 또는 https 링크를 한 줄에 하나씩 입력해 주세요"; return }
+        guard !values.isEmpty, values.allSatisfy({ webURL($0) != nil }) else { status = L("http 또는 https 링크를 한 줄에 하나씩 입력해 주세요", "Enter http or https links, one per line"); return }
         var seen = Set<String>(); let urls = values.filter { seen.insert($0).inserted }
         let sig = signature
         busy = true; analyzing = true; cancelled = false; items = []; previewErrors = []; snapshot = sig
-        log = "페이지의 이미지와 동영상을 함께 찾습니다. 미리보기 이미지는 불러오지만 선택 전에는 파일을 저장하지 않습니다."
+        log = L("페이지의 이미지와 동영상을 함께 찾습니다. 미리보기 이미지는 불러오지만 선택 전에는 파일을 저장하지 않습니다.", "Finding images and videos on the page. Previews load, but nothing is saved until you choose.")
         task = Task {
             defer { busy = false; analyzing = false; task = nil; runner = nil }
             for (n, value) in urls.enumerated() {
@@ -196,7 +196,7 @@ import UserNotifications
                 let before = items.count
                 let url = webURL(value)!
                 do {
-                    status = "링크 \(n+1)/\(urls.count) · 이미지와 동영상 찾는 중"
+                    status = L("링크 \(n+1)/\(urls.count) · 이미지와 동영상 찾는 중", "Link \(n+1)/\(urls.count) · finding images and videos")
                     let directExtensions = ["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "tiff", "bmp", "svg", "mp4", "webm", "mov", "m4v", "mp3", "wav"]
                     if directExtensions.contains(url.pathExtension.lowercased()) {
                         appendResults([try await inspectDirect(url)])
@@ -207,7 +207,7 @@ import UserNotifications
                         let browser = WebImages()
                         appendResults(await attempt("웹페이지") { try await browser.inspect(url) })
                         try Task.checkCancellation()
-                        status = "\(items.count)개 찾음 · 동영상 품질과 사진 게시물 확인 중"
+                        status = L("\(items.count)개 찾음 · 동영상 품질과 사진 게시물 확인 중", "\(items.count) found · checking video qualities and photo posts")
                         let embeds = await withTaskGroup(of: [MediaItem].self) { group in
                             for embed in browser.embeds { group.addTask { await self.attempt("삽입된 동영상") { try await self.inspectVideo(embed) } } }
                             var found: [MediaItem] = []
@@ -220,7 +220,7 @@ import UserNotifications
                     }
                     try Task.checkCancellation()
                     if items.count == before {
-                        previewErrors.append("\(value)\n확인 가능한 파일을 찾지 못했습니다. 로그인·사이트 확인이 필요한 페이지이거나 지원하지 않는 콘텐츠일 수 있습니다.")
+                        previewErrors.append(L("\(value)\n확인 가능한 파일을 찾지 못했습니다. 로그인·사이트 확인이 필요한 페이지이거나 지원하지 않는 콘텐츠일 수 있습니다.", "\(value)\nNo files found. The page may need a login or a site check, or the content isn't supported."))
                     }
                 } catch {
                     if !Task.isCancelled { previewErrors.append("\(value)\n\(error.localizedDescription)") }
@@ -228,7 +228,7 @@ import UserNotifications
             }
             await probeDirect(items.filter { $0.engine == "direct" }.map(\.id))
             snapshot = sig
-            status = cancelled ? "분석 중단 · 찾은 파일은 선택해서 받을 수 있습니다" : "\(items.count)개 파일 · 원하는 항목을 선택하거나 전체 다운로드하세요"
+            status = cancelled ? L("분석 중단 · 찾은 파일은 선택해서 받을 수 있습니다", "Analysis stopped · you can still download what was found") : L("\(items.count)개 파일 · 원하는 항목을 선택하거나 전체 다운로드하세요", "\(items.count) files · choose items or download all")
             // Runs after this task's cleanup has cleared busy, so the download can start.
             if instantDownload && !cancelled { Task { @MainActor in self.startInstant() } }
         }
@@ -237,8 +237,8 @@ import UserNotifications
     private func notifyFinished(saved: [MediaItem], failed: Int) {
         guard notifyWhenDone, !NSApp.isActive, !saved.isEmpty || failed > 0 else { return }
         let content = UNMutableNotificationContent()
-        content.title = failed == 0 ? "다운로드 완료" : "다운로드 끝남 · 실패 \(failed)개"
-        content.body = saved.count == 1 ? "\(saved[0].output?.lastPathComponent ?? saved[0].title) 저장" : "\(saved.count)개 파일을 저장했습니다"
+        content.title = failed == 0 ? L("다운로드 완료", "Download complete") : L("다운로드 끝남 · 실패 \(failed)개", "Downloads finished · \(failed) failed")
+        content.body = saved.count == 1 ? L("\(saved[0].output?.lastPathComponent ?? saved[0].title) 저장", "Saved \(saved[0].output?.lastPathComponent ?? saved[0].title)") : L("\(saved.count)개 파일을 저장했습니다", "Saved \(saved.count) files")
         content.sound = .default
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
@@ -249,7 +249,7 @@ import UserNotifications
     private func startInstant() {
         let picks = Set(items.instantPicks)
         guard !picks.isEmpty else {
-            status = items.contains(where: \.playlistEntry) ? "재생목록 영상 \(items.filter(\.playlistEntry).count)개 · 받을 영상을 골라 주세요" : "\(items.count)개 파일 · 바로 받을 동영상이나 게시물이 없어요. 받을 파일을 골라 주세요"
+            status = items.contains(where: \.playlistEntry) ? L("재생목록 영상 \(items.filter(\.playlistEntry).count)개 · 받을 영상을 골라 주세요", "\(items.filter(\.playlistEntry).count) playlist videos · choose the ones to download") : L("\(items.count)개 파일 · 바로 받을 동영상이나 게시물이 없어요. 받을 파일을 골라 주세요", "\(items.count) files · no video or post to download right away. Choose the files to download")
             return
         }
         for i in items.indices where !items[i].inDownloads { items[i].selected = picks.contains(items[i].id) }
@@ -259,7 +259,7 @@ import UserNotifications
     private func probeDirect(_ ids: [UUID]) async {
         let deadline = Date().addingTimeInterval(12)
         var pending = items.filter { ids.contains($0.id) }.compactMap { item in webURL(item.url).map { (item.id, $0, item.headers) } }[...]
-        if !pending.isEmpty && !Task.isCancelled { status = "\(items.count)개 찾음 · 파일 이름과 용량 확인 중" }
+        if !pending.isEmpty && !Task.isCancelled { status = L("\(items.count)개 찾음 · 파일 이름과 용량 확인 중", "\(items.count) found · checking names and sizes") }
         await withTaskGroup(of: (UUID, MediaItem?).self) { group in
             func probe(_ job: (UUID, URL, [String: String])) { group.addTask { (job.0, try? await self.inspectDirect(job.1, headers: job.2, timeout: 2)) } }
             for _ in 0..<8 { if let job = pending.popFirst() { probe(job) } }
@@ -292,7 +292,7 @@ import UserNotifications
         }
         runner = nil
         try Task.checkCancellation()
-        if result.code != 0 { throw failure(String(result.errors.suffix(2000)).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "\(name) 처리 실패 (\(result.code))" : String(result.errors.suffix(2000))) }
+        if result.code != 0 { throw failure(String(result.errors.suffix(2000)).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? L("\(name) 처리 실패 (\(result.code))", "\(name) failed (\(result.code))") : String(result.errors.suffix(2000))) }
         return result
     }
     private var videoBase: [String] {
@@ -303,7 +303,7 @@ import UserNotifications
         let login = cookies.map { ["--cookies", $0.path] } ?? []
         let r = try await execute("yt-dlp", videoBase + login + ["--skip-download", "--flat-playlist", "-I", "1:200", "--dump-single-json", "-f", "bv*+ba/b", "--", value], metadata: true)
         if let entries = try Metadata.playlist(r.output, source: value) {
-            guard !entries.isEmpty else { throw failure("재생목록에서 받을 수 있는 영상을 찾지 못했습니다.") }
+            guard !entries.isEmpty else { throw failure(L("재생목록에서 받을 수 있는 영상을 찾지 못했습니다.", "No downloadable videos in this playlist.")) }
             return entries
         }
         var item = try Metadata.video(r.output, source: value)
@@ -316,7 +316,7 @@ import UserNotifications
         let r = try await execute("gallery-dl", ["--config-ignore", "--no-input", "--http-timeout", "25", "--retries", "2", "--range", "1-200", "--resolve-json", "--", value], metadata: true)
         var found = try Metadata.gallery(r.output, source: value)
         for i in found.indices {
-            found[i].warning = "사진·갤러리 파일은 최대 200개까지 표시합니다. 선택한 URL을 그대로 저장합니다."
+            found[i].warning = L("사진·갤러리 파일은 최대 200개까지 표시합니다. 선택한 URL을 그대로 저장합니다.", "Up to 200 gallery files are shown. The chosen URLs are saved as they are.")
             found[i].featured = true
         }
         return found
@@ -332,21 +332,21 @@ import UserNotifications
                 if r.expectedContentLength > 0 { size = Double(r.expectedContentLength) }
                 let returnedExtension = (title as NSString).pathExtension.lowercased()
                 if ["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "tiff", "bmp", "svg"].contains(returnedExtension) || ext.isEmpty { ext = returnedExtension }
-                if mime.contains("text/html") { throw failure("파일 대신 웹페이지가 응답했습니다. 자동 또는 동영상 모드로 분석해 주세요.") }
-            } else { warning = "서버가 사전 용량 조회를 지원하지 않습니다. 다운로드 시 파일 종류를 확인합니다." }
+                if mime.contains("text/html") { throw failure(L("파일 대신 웹페이지가 응답했습니다. 자동 또는 동영상 모드로 분석해 주세요.", "A web page came back instead of a file.")) }
+            } else { warning = L("서버가 사전 용량 조회를 지원하지 않습니다. 다운로드 시 파일 종류를 확인합니다.", "The server doesn't report the size in advance. The file type is checked when downloading.") }
         } catch {
             try Task.checkCancellation()
             if (error as NSError).domain == "JiniDownloader" { throw error }
-            warning = "사전 정보를 가져오지 못했습니다. 파일 이름은 URL 기준이며 용량은 다운로드 시작 후 표시됩니다."
+            warning = L("사전 정보를 가져오지 못했습니다. 파일 이름은 URL 기준이며 용량은 다운로드 시작 후 표시됩니다.", "Couldn't get details in advance. The name comes from the URL and the size shows once the download starts.")
         }
         let c = FormatChoice(id: "direct", ext: ext.isEmpty ? (mime.isEmpty ? "?" : mime) : ext, size: size, streamIDs: ["direct"])
         let image = mime.hasPrefix("image/") || ["png","jpg","jpeg","gif","webp","avif"].contains(ext.lowercased())
-        return MediaItem(source: u.absoluteString, url: u.absoluteString, title: safeName(title), subtitle: u.host ?? "직접 파일", thumbnail: image ? u.absoluteString : nil, choices: [c], formatID: c.id, headers: headers, warning: warning)
+        return MediaItem(source: u.absoluteString, url: u.absoluteString, title: safeName(title), subtitle: u.host ?? L("직접 파일", "Direct file"), thumbnail: image ? u.absoluteString : nil, choices: [c], formatID: c.id, headers: headers, warning: warning)
     }
     func start() {
         guard canDownload else { return }
         let ids = items.filter { $0.selected && $0.state != "완료" }.map(\.id); let dest = folder
-        busy = true; cancelled = false; log = "선택한 포맷으로 저장합니다. 재인코딩하지 않습니다."
+        busy = true; cancelled = false; log = L("선택한 포맷으로 저장합니다. 재인코딩하지 않습니다.", "Saving in the chosen format without re-encoding.")
         task = Task {
             defer {
                 // Items a cancelled run never reached go back to the found list.
@@ -374,11 +374,11 @@ import UserNotifications
                         items[i].state = "저장 확인 중"
                         let written = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).filter { !["part","ytdl","json"].contains($0.pathExtension) && !$0.lastPathComponent.hasPrefix(".") }
                         let files = written.filter { !Subtitles.isSubtitle($0) }, subtitleFiles = written.filter(Subtitles.isSubtitle)
-                        guard files.count == 1 else { throw failure("완성 파일을 확인하지 못했습니다. \(files.count)개 결과가 있습니다.") }
+                        guard files.count == 1 else { throw failure(L("완성 파일을 확인하지 못했습니다. \(files.count)개 결과가 있습니다.", "Couldn't identify the finished file. There are \(files.count) results.")) }
                         let streams = try await probeStreams(files[0])
                         if let v = streams.first(where: { $0["codec_type"] as? String == "video" }) {
                             let height = Int(number(v,"height") ?? 0)
-                            if item.selectedFormat.height > 0 && height != item.selectedFormat.height { throw failure("선택한 해상도와 결과가 다릅니다 (선택 \(item.selectedFormat.height)p / 결과 \(height)p). 미리보기를 다시 분석해 주세요.") }
+                            if item.selectedFormat.height > 0 && height != item.selectedFormat.height { throw failure(L("선택한 해상도와 결과가 다릅니다 (선택 \(item.selectedFormat.height)p / 결과 \(height)p). 미리보기를 다시 분석해 주세요.", "The result doesn't match the chosen resolution (chose \(item.selectedFormat.height)p, got \(height)p). Analyze the link again.")) }
                             if let f = items[i].choices.firstIndex(where: { $0.id == item.formatID }) {
                                 items[i].choices[f].width = Int(number(v,"width") ?? 0); items[i].choices[f].height = height
                                 items[i].choices[f].videoCodec = v["codec_name"] as? String ?? items[i].choices[f].videoCodec
@@ -420,7 +420,7 @@ import UserNotifications
             }
             let saved = ids.compactMap { id in items.first { $0.id == id && $0.state == "완료" } }
             let failed = ids.filter { id in items.contains { $0.id == id && $0.state == "실패" } }.count
-            status = cancelled ? "다운로드 취소됨" : "완료 \(saved.count) · 실패 \(failed)"
+            status = cancelled ? L("다운로드 취소됨", "Download cancelled") : L("완료 \(saved.count) · 실패 \(failed)", "Done \(saved.count) · failed \(failed)")
             NSApp.dockTile.badgeLabel = nil
             if !cancelled { notifyFinished(saved: saved, failed: failed) }
         }

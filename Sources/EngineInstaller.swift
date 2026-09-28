@@ -5,7 +5,7 @@ struct EngineManifest: Codable {
     var revision: String
     var tools: [EngineSpec]
     static func bundled() throws -> EngineManifest {
-        guard let url = Bundle.main.url(forResource: "engines", withExtension: "json") else { throw failure("엔진 설치 목록이 없습니다. 앱을 다시 내려받아 주세요.") }
+        guard let url = Bundle.main.url(forResource: "engines", withExtension: "json") else { throw failure(L("엔진 설치 목록이 없습니다. 앱을 다시 내려받아 주세요.", "The tool list is missing. Please download the app again.")) }
         return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
     }
 }
@@ -40,7 +40,7 @@ final class EngineInstaller: @unchecked Sendable {
             try fm.createSymbolicLink(atPath: target.path, withDestinationPath: "../lib/\(tool.name)/\(entry)")
         } else {
             let source = old.appendingPathComponent("bin").appendingPathComponent(tool.executable)
-            guard try Self.digest(source) == tool.sha256 || tool.archive != "raw" else { throw failure("기존 \(tool.name) 파일이 변경되었습니다.") }
+            guard try Self.digest(source) == tool.sha256 || tool.archive != "raw" else { throw failure(L("기존 \(tool.name) 파일이 변경되었습니다.", "The existing \(tool.name) file was changed.")) }
             try fm.copyItem(at: source, to: target)
         }
     }
@@ -68,25 +68,25 @@ final class EngineInstaller: @unchecked Sendable {
             // Reuse a tool an earlier revision already verified with the same checksum instead of downloading it again.
             if let old = previous.first(where: { $0.tools.contains { $0.name == tool.name && $0.sha256 == tool.sha256 && $0.archive == tool.archive } }),
                (try? copyInstalled(tool, from: directory(old.revision), to: stage)) != nil {
-                update("\(index+1)/\(manifest.tools.count) · \(tool.name) 기존 설치본 사용", fraction)
+                update(L("\(index+1)/\(manifest.tools.count) · \(tool.name) 기존 설치본 사용", "\(index+1)/\(manifest.tools.count) · reusing installed \(tool.name)"), fraction)
                 continue
             }
-            guard let url = webURL(tool.url), url.scheme == "https", tool.sha256.count == 64 else { throw failure("유효하지 않은 엔진 설치 정보입니다.") }
-            update("\(index+1)/\(manifest.tools.count) · \(tool.name) 다운로드 (\(bytes(Double(tool.bytes))))", fraction)
+            guard let url = webURL(tool.url), url.scheme == "https", tool.sha256.count == 64 else { throw failure(L("유효하지 않은 엔진 설치 정보입니다.", "The tool install information is invalid.")) }
+            update(L("\(index+1)/\(manifest.tools.count) · \(tool.name) 다운로드 (\(bytes(Double(tool.bytes))))", "\(index+1)/\(manifest.tools.count) · downloading \(tool.name) (\(bytes(Double(tool.bytes))))"), fraction)
             var request = URLRequest(url: url); request.timeoutInterval = 90
             let (temp, response) = try await URLSession.shared.download(for: request)
             defer { try? fm.removeItem(at: temp) }
             try Task.checkCancellation()
-            guard let r = response as? HTTPURLResponse, (200...299).contains(r.statusCode), response.url?.scheme == "https" else { throw failure("\(tool.name) 다운로드에 실패했습니다. 잠시 후 다시 설치해 주세요.") }
-            update("\(tool.name) 파일 검증 중…", fraction)
+            guard let r = response as? HTTPURLResponse, (200...299).contains(r.statusCode), response.url?.scheme == "https" else { throw failure(L("\(tool.name) 다운로드에 실패했습니다. 잠시 후 다시 설치해 주세요.", "Couldn't download \(tool.name). Please try again shortly.")) }
+            update(L("\(tool.name) 파일 검증 중…", "Verifying \(tool.name)…"), fraction)
             let digest = try await Task.detached { try Self.digest(temp) }.value
-            guard digest == tool.sha256 else { throw failure("\(tool.name)의 체크섬이 일치하지 않습니다. 실행하지 않고 설치를 중단했습니다.") }
+            guard digest == tool.sha256 else { throw failure(L("\(tool.name)의 체크섬이 일치하지 않습니다. 실행하지 않고 설치를 중단했습니다.", "\(tool.name) failed its checksum. Installation stopped without running it.")) }
             let target = stage.appendingPathComponent("bin").appendingPathComponent(tool.executable)
             if tool.archive == "zipdir", let entry = tool.entry, !entry.contains("/") {
                 let folder = stage.appendingPathComponent("lib").appendingPathComponent(tool.name)
                 try fm.createDirectory(at: folder, withIntermediateDirectories: true)
                 let r = try await EngineRunner().run(URL(fileURLWithPath:"/usr/bin/ditto"), ["-x","-k",temp.path,folder.path])
-                guard r.code == 0 else { throw failure("\(tool.name) 압축 해제 실패: \(r.errors)") }
+                guard r.code == 0 else { throw failure(L("\(tool.name) 압축 해제 실패: \(r.errors)", "Couldn't unpack \(tool.name): \(r.errors)")) }
                 try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.appendingPathComponent(entry).path)
                 try fm.createSymbolicLink(atPath: target.path, withDestinationPath: "../lib/\(tool.name)/\(entry)")
                 continue
@@ -94,24 +94,24 @@ final class EngineInstaller: @unchecked Sendable {
                 let unpack = stage.appendingPathComponent("unpack-" + tool.name)
                 try fm.createDirectory(at: unpack, withIntermediateDirectories: true)
                 let r = try await EngineRunner().run(URL(fileURLWithPath:"/usr/bin/ditto"), ["-x","-k",temp.path,unpack.path])
-                guard r.code == 0 else { throw failure("\(tool.name) 압축 해제 실패: \(r.errors)") }
+                guard r.code == 0 else { throw failure(L("\(tool.name) 압축 해제 실패: \(r.errors)", "Couldn't unpack \(tool.name): \(r.errors)")) }
                 try fm.moveItem(at: unpack.appendingPathComponent(tool.executable), to: target)
                 try fm.removeItem(at: unpack)
             } else { try fm.copyItem(at: temp, to: target) }
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
         }
         try Task.checkCancellation()
-        update("설치한 도구 실행 확인 중…", 0.95)
+        update(L("설치한 도구 실행 확인 중…", "Checking the installed tools run…"), 0.95)
         for name in ["yt-dlp", "gallery-dl", "deno", "ffmpeg", "ffprobe"] {
             let args = ["ffmpeg","ffprobe"].contains(name) ? ["-version"] : ["--version"]
             let result = try await EngineRunner().run(stage.appendingPathComponent("bin").appendingPathComponent(name), args)
-            guard result.code == 0 else { throw failure("\(name) 실행 확인에 실패했습니다: \(result.errors)") }
+            guard result.code == 0 else { throw failure(L("\(name) 실행 확인에 실패했습니다: \(result.errors)", "\(name) didn't run: \(result.errors)")) }
         }
         try JSONEncoder().encode(manifest).write(to: stage.appendingPathComponent("installed.json"), options: .atomic)
         try Task.checkCancellation()
         if fm.fileExists(atPath: directory.path) { try fm.removeItem(at: directory) }
         try fm.moveItem(at: stage, to: directory)
         for old in previous where old.revision != manifest.revision { try? fm.removeItem(at: self.directory(old.revision)) }
-        update("필수 도구 설치 완료", 1)
+        update(L("필수 도구 설치 완료", "Required tools installed"), 1)
     }
 }

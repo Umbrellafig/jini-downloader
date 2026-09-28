@@ -96,15 +96,15 @@ final class FileTransfer: NSObject, URLSessionDownloadDelegate, @unchecked Senda
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         do {
-            guard let r = downloadTask.response as? HTTPURLResponse, (200...299).contains(r.statusCode) else { throw failure("파일 서버가 다운로드를 거부했습니다 (HTTP \((downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0)).") }
+            guard let r = downloadTask.response as? HTTPURLResponse, (200...299).contains(r.statusCode) else { throw failure(L("파일 서버가 다운로드를 거부했습니다 (HTTP \((downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0)).", "The file server refused the download (HTTP \((downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0)).")) }
             let mime = r.mimeType ?? ""
-            guard mime.hasPrefix("image/") || mime.hasPrefix("video/") || mime.hasPrefix("audio/") || mime == "application/octet-stream" || mime == "binary/octet-stream" else { throw failure("응답이 미디어 파일이 아닙니다 (\(mime)). 미리보기를 다시 분석해 주세요.") }
+            guard mime.hasPrefix("image/") || mime.hasPrefix("video/") || mime.hasPrefix("audio/") || mime == "application/octet-stream" || mime == "binary/octet-stream" else { throw failure(L("응답이 미디어 파일이 아닙니다 (\(mime)). 미리보기를 다시 분석해 주세요.", "The response isn't a media file (\(mime)). Analyze the link again.")) }
             try FileManager.default.moveItem(at: location, to: destination); result = .success(destination)
         } catch { result = .failure(error) }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         lock.lock(); let c = continuation; continuation = nil; active = nil; self.session = nil; lock.unlock()
-        if let error { c?.resume(throwing: error) } else { c?.resume(with: result ?? .failure(failure("저장된 파일이 없습니다."))) }
+        if let error { c?.resume(throwing: error) } else { c?.resume(with: result ?? .failure(failure(L("저장된 파일이 없습니다.", "Nothing was saved.")))) }
         session.finishTasksAndInvalidate()
     }
 }

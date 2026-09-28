@@ -17,6 +17,7 @@ cp "$SPARKLE/LICENSE" "$APP_PATH/Contents/Resources/Sparkle-LICENSE.txt"
 cp Resources/AppIcon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
 cp Resources/Info.plist "$APP_PATH/Contents/Info.plist"
 cp Resources/engines.json "$APP_PATH/Contents/Resources/engines.json"
+for LPROJ in Resources/*.lproj; do ditto "$LPROJ" "$APP_PATH/Contents/Resources/$(basename "$LPROJ")"; done
 if [[ -f LICENSE ]]; then cp LICENSE "$APP_PATH/Contents/Resources/LICENSE.txt"; fi
 if [[ -f docs/ENGINES.md ]]; then cp docs/ENGINES.md "$APP_PATH/Contents/Resources/ENGINES.md"; fi
 if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then

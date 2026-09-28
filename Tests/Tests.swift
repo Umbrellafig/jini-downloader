@@ -1,6 +1,7 @@
 import Foundation
 @main struct Tests {
     static func main() throws {
+        uiKorean = true
         let v: [String: Any] = ["format_id":"401", "ext":"mp4", "width":3840, "height":2160, "fps":60, "vcodec":"av01", "acodec":"none", "filesize":2000]
         let a: [String: Any] = ["format_id":"251", "ext":"webm", "vcodec":"none", "acodec":"opus", "filesize":200]
         let low: [String: Any] = ["format_id":"18", "ext":"mp4", "width":640, "height":360, "vcodec":"avc1", "acodec":"aac", "filesize":100]
@@ -151,6 +152,12 @@ import Foundation
         print("PASS: browser cookies: domain/path/secure matching, header, cookies.txt")
         print("PASS: MP4 plan: already fine, remux, HEVC tag, VP9/Opus re-encode, no audio")
         print("PASS: media kinds, kind filter, column sorting with unknown values last, header click cycle")
+        uiKorean = false
+        precondition(L("완료", "Done") == "Done" && stateLabel("완료") == "Done" && stateLabel("대기 중") == "Waiting" && MediaKind.video.label == "Videos")
+        precondition(m4a.label.hasPrefix("Audio only · M4A") && bytes(nil) == "Size unknown" && FileNaming.dateTitle.label == "Upload date + title")
+        uiKorean = true
+        precondition(stateLabel("완료") == "완료" && MediaKind.video.label == "동영상")
+        print("PASS: English interface text, state labels, Korean identifiers kept")
         print("PASS: preview selection, exact/unknown size, Korean text, stream progress, gallery filtering, URL validation, live handling")
     }
 }
