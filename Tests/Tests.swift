@@ -16,6 +16,14 @@ import Foundation
         precondition(m4a.audioFormat == "m4a" && m4a.streamIDs == ["251"] && m4a.size == 200 && mp3.ext == "mp3" && m4a.label.hasPrefix("음성만 · M4A"))
         var unknown = a; unknown.removeValue(forKey:"filesize")
         precondition(Metadata.choice([v,unknown]).size == nil, "Partial sizes must not look like full sizes")
+        var hls = v; hls.removeValue(forKey:"filesize"); hls["tbr"] = 800
+        let estimated = Metadata.choice([hls,a], duration: 10)
+        precondition(estimated.size == 1_000_200 && estimated.approximate, "Streams without a size are estimated from bitrate × duration")
+        let dash: [String: Any] = ["format_id":"248", "height":1080, "vcodec":"vp9", "acodec":"none", "dynamic_range":"SDR", "filesize":1000, "tbr":100]
+        let copy: [String: Any] = ["format_id":"614", "height":1080, "vcodec":"vp09.00.40.08", "acodec":"none", "dynamic_range":"SDR", "tbr":200]
+        let premium: [String: Any] = ["format_id":"616", "height":1080, "vcodec":"vp09.00.40.08", "acodec":"none", "dynamic_range":"SDR", "tbr":300]
+        let filled = Metadata.estimatingSizes([dash, copy, premium, low])
+        precondition(number(filled[1], "filesize_approx") == 1000 && number(filled[2], "filesize_approx") == 1500 && filled[3]["filesize_approx"] == nil, "Sizeless copies take the matching stream's size, variants scale it")
         precondition(StreamProgress.parse("ODP\t401\t50\t100\tNA\t10\t5\tdownloading")?.fraction == 0.5)
         precondition(StreamProgress.parse("ODP\t251\t50\tNA\tNA\tNA\tNA\tdownloading")?.fraction == nil)
         precondition(StreamProgress.parse("ODP\t401\t100\t100\tNA\t10\t0\tfinished")?.fraction == 1)

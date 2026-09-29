@@ -347,11 +347,43 @@ struct StreamProgress {
     }
 }
 enum Metadata {
-    static func choice(_ streams: [[String: Any]], recommended: Bool = false) -> FormatChoice {
+    /// A stream's size: the reported one, or bitrate × duration for streams (HLS and the like) that report none.
+    static func size(_ f: [String: Any], duration: Double?) -> Double? {
+        if let s = number(f, "filesize") ?? number(f, "filesize_approx"), s > 0 { return s }
+        let kbps = number(f, "tbr") ?? ((number(f, "vbr") ?? 0) + (number(f, "abr") ?? 0))
+        guard let duration, duration > 0, kbps > 0 else { return nil }
+        return kbps * 125 * duration
+    }
+    /// Streams offered both with a size and without one (HLS copies, which report only a peak bitrate) are the same encode,
+    /// so a sizeless stream takes the size of the sized one with the same height, codec and dynamic range. Further sizeless
+    /// variants of it (a higher-bitrate edition) scale that size by their peak bitrate.
+    static func estimatingSizes(_ formats: [[String: Any]]) -> [[String: Any]] {
+        func key(_ f: [String: Any]) -> String? {
+            guard let height = number(f, "height"), height > 0, let codec = (f["vcodec"] as? String)?.lowercased(), codec != "none" else { return nil }
+            var family = String(codec.prefix { $0 != "." })
+            family = ["vp09": "vp9", "avc3": "avc1", "hev1": "hevc", "hvc1": "hevc"][family] ?? family
+            return "\(Int(height))|\(family)|\(f["dynamic_range"] as? String ?? "")|\((f["acodec"] as? String ?? "none") == "none")"
+        }
+        func known(_ f: [String: Any]) -> Double? { (number(f, "filesize") ?? number(f, "filesize_approx")).flatMap { $0 > 0 ? $0 : nil } }
+        var sized: [String: Double] = [:]
+        for f in formats { if let k = key(f), let s = known(f) { sized[k] = max(sized[k] ?? 0, s) } }
+        var result = formats
+        let sizeless = Dictionary(grouping: formats.indices.filter { known(formats[$0]) == nil && key(formats[$0]).map { sized[$0] != nil } == true }) { key(formats[$0])! }
+        for (k, indices) in sizeless {
+            let ordered = indices.sorted { (number(formats[$0], "tbr") ?? 0) < (number(formats[$1], "tbr") ?? 0) }
+            let base = number(formats[ordered[0]], "tbr") ?? 0
+            for i in ordered {
+                let scale = i == ordered[0] || base <= 0 ? 1 : (number(formats[i], "tbr") ?? base) / base
+                result[i]["filesize_approx"] = sized[k]! * scale
+            }
+        }
+        return result
+    }
+    static func choice(_ streams: [[String: Any]], recommended: Bool = false, duration: Double? = nil) -> FormatChoice {
         let v = streams.first { ($0["vcodec"] as? String ?? "none") != "none" } ?? streams[0]
         let a = streams.first { ($0["acodec"] as? String ?? "none") != "none" }
         let ids = streams.compactMap { $0["format_id"] as? String }
-        let sizes = streams.map { number($0, "filesize") ?? number($0, "filesize_approx") }
+        let sizes = streams.map { size($0, duration: duration) }
         let complete = sizes.allSatisfy { ($0 ?? 0) > 0 }
         return FormatChoice(id: ids.joined(separator: "+"), ext: streams.count > 1 ? "mkv" : (v["ext"] as? String ?? "?"), width: Int(number(v, "width") ?? 0), height: Int(number(v, "height") ?? 0), fps: number(v, "fps") ?? 0, videoCodec: v["vcodec"] as? String ?? "", audioCodec: a?["acodec"] as? String ?? "", dynamicRange: v["dynamic_range"] as? String ?? "", size: complete ? sizes.compactMap { $0 }.reduce(0,+) : nil, approximate: streams.count > 1 || streams.contains { number($0, "filesize") == nil }, streamIDs: ids, recommended: recommended, sourceExt: v["ext"] as? String ?? "")
     }
@@ -359,9 +391,10 @@ enum Metadata {
         guard let d = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw failure(L("동영상 정보를 읽지 못했습니다.", "Couldn't read the video information.")) }
         if d["_type"] as? String == "playlist" { throw failure(L("개별 동영상 링크를 입력해 주세요. 재생목록 미리보기는 지원하지 않습니다.", "Enter a link to a single video.")) }
         if d["is_live"] as? Bool == true { throw failure(L("진행 중인 라이브 방송은 크기와 완료 시점을 확정할 수 없습니다. 종료된 영상 링크를 사용해 주세요.", "A live stream in progress has no final size or end. Use the link after the stream ends.")) }
-        let formats = (d["formats"] as? [[String: Any]] ?? []).filter { ($0["has_drm"] as? Bool) != true }
-        let requested = d["requested_formats"] as? [[String: Any]] ?? [d]
-        var best = choice(requested, recommended: true)
+        let formats = estimatingSizes((d["formats"] as? [[String: Any]] ?? []).filter { ($0["has_drm"] as? Bool) != true })
+        let requested = (d["requested_formats"] as? [[String: Any]] ?? [d]).map { r in formats.first { $0["format_id"] as? String == r["format_id"] as? String && r["format_id"] != nil } ?? r }
+        let duration = number(d, "duration")
+        var best = choice(requested, recommended: true, duration: duration)
         if best.id.isEmpty { best.id = d["format_id"] as? String ?? ""; best.streamIDs = [best.id] }
         guard !best.id.isEmpty else { throw failure(L("저장할 수 있는 포맷을 찾지 못했습니다.", "No downloadable format was found.")) }
         let audio = requested.first { ($0["vcodec"] as? String) == "none" && ($0["acodec"] as? String ?? "none") != "none" } ?? formats.last { ($0["vcodec"] as? String) == "none" && ($0["acodec"] as? String ?? "none") != "none" }
@@ -370,17 +403,17 @@ enum Metadata {
             if f["has_drm"] as? Bool == true { continue }
             let streams: [[String: Any]]
             if f["acodec"] as? String == "none" { guard let audio else { continue }; streams = [f, audio] } else { streams = [f] }
-            let c = choice(streams)
+            let c = choice(streams, duration: duration)
             if !c.id.isEmpty && seen.insert(c.id).inserted { choices.append(c) }
         }
         // Audio-only choices take the best audio stream; the size is that stream's (MP3 re-encoding changes it a little).
         if let audio, let id = audio["format_id"] as? String {
-            let size = number(audio, "filesize") ?? number(audio, "filesize_approx")
+            let audioSize = Metadata.size(audio, duration: duration)
             for format in ["m4a", "mp3"] {
-                choices.append(FormatChoice(id: "audio-" + format, ext: format, audioCodec: format == "mp3" ? "mp3" : "aac", size: size, approximate: true, streamIDs: [id], audioFormat: format))
+                choices.append(FormatChoice(id: "audio-" + format, ext: format, audioCodec: format == "mp3" ? "mp3" : "aac", size: audioSize, approximate: true, streamIDs: [id], audioFormat: format))
             }
         }
-        return MediaItem(source: source, url: source, title: d["title"] as? String ?? source, subtitle: d["uploader"] as? String ?? URL(string: source)?.host ?? "", thumbnail: d["thumbnail"] as? String, duration: number(d, "duration"), choices: choices, formatID: best.id, engine: "yt-dlp")
+        return MediaItem(source: source, url: source, title: d["title"] as? String ?? source, subtitle: d["uploader"] as? String ?? URL(string: source)?.host ?? "", thumbnail: d["thumbnail"] as? String, duration: duration, choices: choices, formatID: best.id, engine: "yt-dlp")
     }
     /// Videos of a playlist (from yt-dlp --flat-playlist), up to 200; nil when the JSON is a single video.
     static func playlist(_ data: Data, source: String) throws -> [MediaItem]? {
